@@ -6,16 +6,6 @@ the validated 1D/2D method of **Roccon (2025)** toward full 3D DNS.
 > Roccon A. (2025). *Boiling heat transfer by phase-field method.*
 > Acta Mechanica 236, 5623–5638. https://doi.org/10.1007/s00707-024-04122-7
 
-**Context:** This is the development and validation environment for the PhD
-project *"Phase-Field Modelling of Boiling Heat Transfer in Turbulent Flows:
-Extension to 2D/3D Direct Numerical Simulation"* at the Multiphase Flow
-Laboratory, University of Udine (supervisor: Dr Alessio Roccon).
-
-The production solver will be written in Fortran with CUDA/MPI for HPC clusters
-(building on Roccon's existing [FLOW36](https://github.com/MultiphaseFlowLab/FLOW36)
-framework). This Python prototype serves to understand, implement, and validate
-the algorithms on a laptop **before** that port.
-
 ---
 
 ## System requirements
