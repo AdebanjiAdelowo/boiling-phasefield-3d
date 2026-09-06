@@ -95,13 +95,29 @@ boiling-phasefield-3d/
 │   │                           Reproduces Roccon (2025) Section 3.4.
 │   │
 │   └── stefan_1d.py            1-D Stefan problem: superheated vapour drives
-│                               vaporisation. Validates δ(t) = 2ξ√(αᵥt)
-│                               against the analytical solution.
-│                               Reproduces Roccon (2025) Section 3.2.
+│                               vaporisation. Compared against the analytical
+│                               solution δ(t) = 2ξ√(αᵥt); matches only in an
+│                               early transient, then fails. Not a validated
+│                               benchmark in this prototype (see "Validation
+│                               status" below and the technical docs).
 │
 ├── requirements.txt            Python dependencies
 └── README.md                   This file
 ```
+
+---
+
+## Validation status
+
+| Benchmark | Dimension | Status |
+|---|---|---|
+| Bubble growth at prescribed vaporisation rate | 2-D | Validated: matches the analytical growth rate R(t), with demonstrated second-order convergence as grid spacing is refined |
+| Stefan problem (heat-flux-driven vaporisation) | 1-D | Not validated: matches the analytical solution only in an early transient, then fails outright (56% error by t = 250 s) due to identified vaporisation-rate and boundary-condition issues, see `docs/Phase_Field_Boiling_Solver_Technical_Documentation.md` |
+| Spherical bubble benchmark | 3-D | Implemented (`run_3d`), not yet run or validated |
+
+This prototype is a development and validation environment, not a production solver. Only the 2-D bubble-growth result above should be treated as a validated benchmark; the 1-D and 3-D cases are documented open work, not confirmed results.
+
+An automated test suite (`tests/`) independently checks the properties this status table relies on: the FFT Poisson solver against manufactured solutions, exact mass conservation of the Allen-Cahn right-hand side, and the 2-D bubble-growth convergence trend, at reduced resolution/run time for speed. It also includes a regression test confirming the Stefan-problem failure is still present, plus a strict `xfail` test that encodes the validated behaviour still to be achieved there, not the current one, see "Running tests" below.
 
 ---
 
@@ -119,6 +135,18 @@ python examples/bubble_2d.py
 python examples/stefan_1d.py
 # Output: stefan_1d_result.png (δ(t) numerical vs analytical + final T, φ profiles)
 ```
+
+### Running tests
+
+```bash
+pytest tests/ -v
+```
+
+Runs in well under a minute. Expected result: 8 passed, 1 xfailed. The single
+`xfail` is `test_stefan_1d_benchmark_would_be_validated_if_fixed`, which is
+expected to fail (it encodes the Stefan-problem benchmark's target, not yet
+achieved, behaviour) and is marked `strict=True` so that an accidental pass
+is reported as a test failure rather than silently ignored.
 
 ---
 
@@ -171,12 +199,19 @@ result = run_3d(p, phi0)
    Euler. The bubble benchmark therefore uses σ = 0. Implicit surface tension
    treatment is a Year-2 implementation task.
 
-2. **Simplified vaporisation rate (no probe interpolation).**
+2. **Stefan-problem benchmark fails after an early transient; not validated.**
    The heat-flux vaporisation rate in `energy.py` evaluates temperature
    gradients at grid-point locations rather than at probe points ±Δ from the
-   interface iso-contour (Roccon 2025, Section 2.4). This introduces growing
-   error in the Stefan problem at late times. The full probe method is a
-   Year-1 implementation task.
+   interface iso-contour (Roccon 2025, Section 2.4), which under-estimates
+   the vaporisation rate from the start. Past t ≈ 100 s the run breaks down
+   outright: the periodic boundary conditions are physically wrong for this
+   problem (they wrap the wall onto the outlet), and the resulting interface
+   oscillation feeds back through the sign-based interface normal and the
+   phi-dependent thermal diffusivity into spurious, sign-alternating
+   vaporisation sites. Final error is 56% at t = 250 s; see
+   `docs/Phase_Field_Boiling_Solver_Technical_Documentation.md` ("The Stefan
+   problem") for the full mechanism. The probe method and non-periodic
+   boundary conditions are both Year-1 implementation tasks.
 
 3. **Periodic boundary conditions only.**
    The pressure FFT solver assumes periodicity on all boundaries. Wall-bounded
@@ -216,6 +251,7 @@ additions before the Fortran port.
 - Roccon A. (2025). Boiling heat transfer by phase-field method. *Acta Mech.*
   236, 5623–5638.
 - Mirjalili S., Ivey C.B., Mani A. (2020). A conservative diffuse interface
-  method for two-phase flows. *J. Comput. Phys.* 401, 109006.
+  method for two-phase flows with provable boundedness properties.
+  *J. Comput. Phys.* 401, 109006.
 - Roccon A., Zonta F., Soldati A. (2023). Phase-field modeling of complex
   interface dynamics in drop-laden turbulence. *Phys. Rev. Fluids* 8, 090501.
