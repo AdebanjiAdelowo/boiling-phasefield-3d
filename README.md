@@ -14,7 +14,7 @@ the validated 1D/2D method of **Roccon (2025)** toward full 3D DNS.
 |---|---|
 | Python ≥ 3.10 | Tested on 3.12 (Anaconda) |
 | NumPy, SciPy, Matplotlib | See `requirements.txt` |
-| Mac / Linux | Works on Apple Silicon (M1/M2/M3) — no CUDA needed |
+| Mac / Linux | Works on Apple Silicon (M1/M2/M3), no CUDA needed |
 | GPU / Fortran | **Not required** for this prototype |
 
 The production HPC code will require NVIDIA GPU + Fortran + MPI (not available
@@ -37,11 +37,11 @@ following Roccon (2025) Section 2:
 **Key numerical property:** the one-fluid NS formulation yields a
 *constant-coefficient* Poisson equation for pressure (Eq. 18), which is solved
 via FFT-based direct solvers. This property holds in 3D and makes the code
-directly GPU-portable — it is the core motivation for choosing this method.
+directly GPU-portable, which is the core motivation for choosing this method.
 
 **Vaporisation rate:** computed in two ways (selectable via `SimParams.mode`):
-- `'prescribed'` — surface rate ṁ is given directly (bubble growth benchmark)
-- `'heat_flux'`  — ṁ computed from Rankine-Hugoniot heat-flux balance (Eq. 12)
+- `'prescribed'`: surface rate ṁ is given directly (bubble growth benchmark)
+- `'heat_flux'`: ṁ computed from Rankine-Hugoniot heat-flux balance (Eq. 12)
   at the interface (Stefan problem, turbulent boiling)
 
 ---
@@ -52,7 +52,7 @@ directly GPU-portable — it is the core motivation for choosing this method.
 boiling-phasefield-3d/
 │
 ├── src/                        Core solver library
-│   ├── params.py               SimParams dataclass — all physical and numerical
+│   ├── params.py               SimParams dataclass, all physical and numerical
 │   │                           parameters in one place with sensible defaults
 │   │
 │   ├── operators.py            2nd-order central-difference spatial operators
@@ -113,11 +113,11 @@ pip install -r requirements.txt
 
 # Benchmark 1: 2-D bubble growth (runs in ~30 s on a laptop)
 python examples/bubble_2d.py
-# Output: bubble_2d_result.png  — R(t) numerical vs analytical + final φ field
+# Output: bubble_2d_result.png (R(t) numerical vs analytical + final φ field)
 
 # Benchmark 2: 1-D Stefan problem (runs in ~5 min on a laptop)
 python examples/stefan_1d.py
-# Output: stefan_1d_result.png  — δ(t) numerical vs analytical + final T, φ profiles
+# Output: stefan_1d_result.png (δ(t) numerical vs analytical + final T, φ profiles)
 ```
 
 ---
@@ -153,10 +153,10 @@ result = run_3d(p, phi0)
 
 | Year | Task | Status in this repo |
 |---|---|---|
-| 1 | 3-D spherical bubble benchmark | `run_3d` implemented — needs testing |
+| 1 | 3-D spherical bubble benchmark | `run_3d` implemented, needs testing |
 | 1 | Full probe-based vaporisation rate (Eq. 12) | Simplified version in `energy.py`; full probe method is TODO |
-| 1 | Wall + outlet boundary conditions | Currently periodic only — wall BCs are TODO |
-| 2 | GPU port (Fortran + NVIDIA HPC-SDK) | FLOW36 fork — separate production repo |
+| 1 | Wall + outlet boundary conditions | Currently periodic only; wall BCs are TODO |
+| 2 | GPU port (Fortran + NVIDIA HPC-SDK) | FLOW36 fork, separate production repo |
 | 2 | DNS of nucleate boiling in turbulent channel | Requires HPC cluster |
 | 3 | Parameter studies: Re, ΔT, density ratio | Post-processing scripts |
 | 3 | Nusselt number scaling laws | `diagnostics.py::nusselt_number_2d` stub ready |
@@ -190,7 +190,7 @@ result = run_3d(p, phi0)
 
 5. **Python performance.**
    NumPy is sufficient for 2-D prototype runs (64×64 in seconds). A 3-D
-   turbulent simulation at 512³ requires Fortran + GPU — this prototype is
+   turbulent simulation at 512³ requires Fortran + GPU: this prototype is
    a validation tool only, not a production solver.
 
 ---
