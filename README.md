@@ -230,6 +230,17 @@ result = run_3d(p, phi0)
 
 ---
 
+## Remaining Work
+
+Fixed and re-verified since the PhD roadmap above was written: the Allen-Cahn mobility
+(`gamma`) dimensional scaling and the `mdot_from_heatflux_2d` vaporisation closure (both
+previously buggy, now corrected and bubble-growth-benchmark-verified). Still open: the documented
+1-D Stefan-problem failure (root cause understood, unrelated to the two fixes above); the full
+3-D experiments and neural-operator surrogate work in the roadmap table above remain deferred and
+gated on compute availability, not attempted this phase. Portfolio-wide project status is tracked
+centrally in the author's Selected Projects documentation; this project's status there is
+DEFERRED RESEARCH.
+
 ## Connection to Roccon's existing codebase
 
 Roccon's public repositories at [MultiphaseFlowLab](https://github.com/MultiphaseFlowLab):
