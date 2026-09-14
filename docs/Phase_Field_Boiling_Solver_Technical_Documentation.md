@@ -1606,6 +1606,19 @@ if self.gamma is None:
 or, more robustly, recomputing $\gamma = |\mathbf{u}|_{\max}$ each step inside the solver
 loop, which is what MHIT36 does.
 
+**Status: fixed.** `src/params.py::SimParams.__post_init__` now uses exactly this default.
+For the bubble benchmark this gives $\gamma = \dot m_{\rm surf}/\rho_v = 0.1$ m/s, comfortably
+above the $\geq 0.05$ m/s boundedness bound derived above (previously $2.34\times10^{-4}$
+m/s, ~200× too small). Re-running the bubble-growth grid-refinement study of Section 11.1
+after the fix reproduces the same error trend to within noise (8.58% → 3.08% at
+$N=64$, vs. 8.58% → 3.06% before), and the $64\times64$ fast regression test in
+`tests/test_bubble_convergence.py` still passes — the `np.clip` band-aid was already masking
+the unboundedness for this particular mode, so the fix's main effect here is to make the
+boundedness guarantee analytic rather than numerical, as intended, rather than to change
+this benchmark's numbers. `np.clip` is deliberately left in place (removing it is future
+work, see the roadmap) since it is now a defensive assertion rather than the sole
+boundedness mechanism.
+
 ## `src/operators.py` — spatial discretisation
 
 Discussed in Section 8.1. The module is 65 lines and contains no state. Two private
@@ -1921,6 +1934,35 @@ The correct fix is the probe method of Section 7.5, which is the Year-1 task alr
 identified in the repository README. In the interim, the function should at minimum be
 rewritten to evaluate one-sided gradients using $\phi$-weighted masks, and should raise
 rather than silently return zero when $k_v = k_l$.
+
+**Status: interim fix applied.** `src/energy.py::mdot_from_heatflux_2d` no longer factors
+$\nabla T_v$ and $\nabla T_l$ into a shared central gradient. It now evaluates each
+one-sided derivative separately with $\phi$-masked forward/backward differences along each
+axis (at each grid point and axis, the one-sided stencil leaning toward the more-vapour
+neighbour estimates $\nabla T_v$, the one leaning toward the more-liquid neighbour estimates
+$\nabla T_l$), then applies Eq. (R.12) as $\dot m = (k_v\nabla T_v - k_l\nabla T_l)\cdot
+\mathbf{n}/h_{lv}$ directly. With matched conductivities ($k_v = k_l = 0.005$, the Stefan
+configuration) this is no longer identically zero: a synthetic check with a superheated-side
+temperature profile gives $\max|\dot m'''| \approx 1.07$ (vs. exactly $0$ before). With the
+default water properties ($k_v = 0.024$, $k_l = 0.677$) and a synthetic superheated-liquid
+profile (liquid hot far from the interface, decaying to $T_{\rm sat}$ at the interface,
+vapour held at $T_{\rm sat}$), $\dot m$ now comes out positive at the interface (vaporisation),
+consistent with the sign convention $\mathbf{n} = \nabla\phi/|\nabla\phi|$ (pointing from
+liquid to vapour) used everywhere else in this codebase, and with the sign of the Stefan
+benchmark's own inline formula in the corresponding one-sided limit (one phase held at
+$T_{\rm sat}$, i.e. zero gradient there), to which this fix reduces exactly. This remains a
+local, grid-point approximation, not the full probe method of Section 7.5 — extrapolating
+$T$ to points $\pm\varepsilon$ along $\mathbf{n}$ on each side of the $\phi=0.5$ iso-contour
+is still the more accurate and still-outstanding fix, and is expected to still be needed to
+resolve the Stefan-problem failure of Section 11.2, which is a separate, still-open issue
+(missing probe method and periodic boundary conditions) unaffected by this change — confirmed
+by `tests/test_stefan_known_failure.py::test_stefan_1d_benchmark_diverges_as_documented`
+still passing (i.e. the known failure is still present, now at 51.5% rather than 36.7% error
+at $t=120$ s, since the corrected, much larger $\gamma$ default sharpens the interface more
+aggressively in this mismatched-scale regime — still comfortably above the test's loose
+$>15\%$ bound either way). `examples/stefan_1d.py` and
+`tests/test_stefan_known_failure.py` do not call this function at all (they inline their own
+correct single-sided formula, as noted above) and are therefore unaffected by this fix.
 
 ## `src/solver.py` — the coupled time loop
 
@@ -2435,12 +2477,14 @@ consequence: a systematic under-prediction of $\dot m$ reaching 31% error in int
 position by $t = 100$ s in the Stefan problem, because a central difference straddling the
 saturation clamp returns roughly half the true one-sided gradient.
 
-Compounding this, `src/energy.py::mdot_from_heatflux_2d` is incorrect as written
-(Defect 5, Section 9.6): it factors the two one-sided gradients into a single central one,
-returning $(k_v - k_l)\nabla T\cdot\hat{\mathbf n}/h_{lv}$. This is identically zero when
-$k_v = k_l$ — the Stefan configuration — and has the wrong sign for the default water
-properties. The function is currently never exercised, because the Stefan example inlines
-its own correct single-sided form. This is the highest-priority fix.
+Compounding this, `src/energy.py::mdot_from_heatflux_2d` was incorrect as written
+(Defect 5, Section 9.6): it factored the two one-sided gradients into a single central one,
+returning $(k_v - k_l)\nabla T\cdot\hat{\mathbf n}/h_{lv}$. This was identically zero when
+$k_v = k_l$ — the Stefan configuration — and had the wrong sign for the default water
+properties. **Fixed** (Section 9.6) with a $\phi$-masked one-sided-difference formulation
+that no longer collapses to a single shared gradient; the full probe-based method below
+remains the more accurate long-term fix. The function was, and remains, never exercised by
+the Stefan example, which inlines its own correct single-sided form.
 
 ## Explicit surface tension and the time-step restriction
 
@@ -2512,8 +2556,9 @@ headroom.
 
 For completeness, the defects identified in Section 9 that are not covered above:
 
-- **Defect 1** — `gamma = eps` is a units error; $\gamma$ is a velocity scale and is
-  currently ~200× smaller than the boundedness criterion \eqref{eq:bounded} requires.
+- **Defect 1** — `gamma = eps` was a units error; $\gamma$ is a velocity scale and was
+  ~200× smaller than the boundedness criterion \eqref{eq:bounded} requires. **Fixed** —
+  see Section 9.1.
 - **Defect 2** — momentum advection uses the non-conservative form, omitting the
   phase-change momentum term $\mathbf{u}\,\dot m'''(1-\rho_v/\rho_l)$.
 - **Defect 3** — the 3D viscous term drops the variable-viscosity correction the 2D version
@@ -2560,9 +2605,11 @@ Ordered by priority, these are the fixes that should precede any new physics:
    $\phi = 0.5$ iso-contour using the signed-distance property, place probes at
    $\mathbf{x}_i \pm \Delta\mathbf{n}$ with $\Delta \sim \Delta x$, interpolate $T$ to each
    probe, form the one-sided gradients, and evaluate \eqref{eq:R12}. This addresses the
-   dominant Stefan error directly and also repairs Defect 5.
-2. **Fix $\gamma$** to a velocity scale satisfying \eqref{eq:bounded}, ideally recomputed
-   as $|\mathbf{u}|_{\max}$ each step. Then remove the `np.clip` and verify that
+   dominant Stefan error directly and supersedes the interim $\phi$-masked one-sided-gradient
+   fix now applied to Defect 5 (Section 9.6) with the more accurate probe-based gradients.
+2. ~~**Fix $\gamma$** to a velocity scale satisfying \eqref{eq:bounded}~~ — **done**
+   (Section 9.1). Still outstanding: recomputing $\gamma = |\mathbf{u}|_{\max}$ each step
+   rather than using a fixed default, then removing the `np.clip` and verifying that
    boundedness holds *analytically*, as Mirjalili et al. (2020) guarantee —
    which converts the clip from a crutch into an assertion.
 3. **Conservative momentum advection**, removing Defect 2, and measure the resulting
@@ -2670,8 +2717,8 @@ Once the solver is validated in 3D with wall boundary conditions:
 
 | Priority | Task | Depends on | Section |
 |---|---|---|---|
-| 1 | Probe method for $\dot m$; fix Defect 5 | — | 13.1 |
-| 2 | Fix $\gamma$; remove `np.clip` crutch | — | 13.1 |
+| 1 | Probe method for $\dot m$ (supersedes the interim Defect 5 fix) | — | 13.1 |
+| 2 | ~~Fix $\gamma$~~ done; recompute per-step and remove `np.clip` crutch | — | 13.1 |
 | 3 | Conservative momentum advection | — | 13.1 |
 | 4 | 3D bubble benchmark at $64^3$ | 1–3 | 13.2 |
 | 5 | Wall/outlet BCs; DST/DCT or tridiagonal solver | 4 | 13.3 |

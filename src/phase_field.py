@@ -7,11 +7,16 @@ Governing equation (Roccon 2025, Eq. 1):
 where:
   φ ∈ [0,1]   phase-field variable  (φ=1 vapour, φ=0 liquid)
   ε           interface width [m]
-  γ           Allen-Cahn mobility
+  γ           Allen-Cahn mobility — a VELOCITY scale [m/s], not a length
   ṁ‴         volumetric vaporisation rate [kg/(m³·s)]
   ρᵥ          vapour density [kg/m³]
 
 The divergence form of the RHS ensures mass conservation of each phase.
+
+Boundedness (Mirjalili, Ivey & Mani 2020, JCP; Jain 2022):
+γ must satisfy  Γ* = γ/|u|_max ≥ 1/(2ε* − 1),  ε* = ε/Δx,  for φ to remain
+provably bounded in [0,1] under central differences — see
+`SimParams.__post_init__` in params.py for the default that enforces this.
 
 Volumetric–to–surface vaporisation rate conversion (Eq. 2):
   ṁ‴ = ṁ |∇φ| ≈ ṁ φ(1−φ)/ε

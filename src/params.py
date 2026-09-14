@@ -42,7 +42,8 @@ class SimParams:
 
     # ── Phase-field ───────────────────────────────────────────────────────────
     eps:   float = None   # interface width [m]  (default: 1.5 × dx)
-    gamma: float = None   # Allen-Cahn mobility  (default: eps)
+    gamma: float = None   # Allen-Cahn mobility, a VELOCITY scale [m/s]
+                           # (default: see __post_init__ and Mirjalili et al. 2020)
 
     # ── Vaporisation mode ─────────────────────────────────────────────────────
     # 'prescribed' : ṁ (per unit surface) is constant — used for bubble benchmark
@@ -54,7 +55,25 @@ class SimParams:
         if self.eps is None:
             self.eps = 1.5 * self.dx
         if self.gamma is None:
-            self.gamma = self.eps
+            # gamma is a VELOCITY-scale mobility parameter, not a length: for
+            # the conservative Allen-Cahn flux J = gamma*(eps*grad(phi) -
+            # phi(1-phi)*n), dimensional analysis of the governing equation
+            # forces [gamma] = L/T (Jain 2022 calls it "the velocity-scale
+            # parameter"; Mirjalili, Ivey & Mani 2020, JCP, boundedness
+            # criterion: Gamma* = gamma/|u|_max >= 1/(2*eps* - 1), with
+            # eps* = eps/dx, i.e. gamma >= |u|_max / (2*eps/dx - 1)).
+            # Setting gamma = eps (the previous default) assigns it a LENGTH
+            # instead, undershooting the boundedness bound by ~200x for the
+            # bubble-growth benchmark.
+            #
+            # mdot_surf / rho_v is the actual interface-advance velocity for
+            # the 'prescribed' vaporisation mode, so it is a natural estimate
+            # of |u|_max there; dx/dt sets a numerically-stable ceiling
+            # (the phase-field sharpening term is itself only stable for
+            # dt < dx/gamma), and 1e-3 keeps a comfortable margin below that
+            # ceiling when no other velocity scale is available (e.g. in
+            # 'heat_flux' mode, where the interface speed is much smaller).
+            self.gamma = max(self.mdot_surf / self.rho_v, self.dx / self.dt * 1e-3)
 
     # ── Derived grid spacing ──────────────────────────────────────────────────
     @property

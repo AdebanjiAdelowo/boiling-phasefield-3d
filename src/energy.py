@@ -100,24 +100,64 @@ def mdot_from_heatflux_2d(T, phi, p):
 
     Smeared to volumetric rate via Eq. 2:  ṁ‴ = ṁ φ(1−φ)/ε
 
-    This simplified version evaluates the heat-flux balance at each
-    grid point (not via probe interpolation).  For the full probe
-    method see Roccon (2025) Section 2.4 — implementing that is
-    Year 1 work for the PhD project.
+    ∇Tᵥ and ∇Tₗ are two *distinct one-sided* gradients — the temperature
+    gradient evaluated on the vapour side of the interface and on the
+    liquid side respectively. They are NOT the same quantity: the whole
+    physical content of the Rankine-Hugoniot balance is that they differ
+    (that difference, weighted by each phase's conductivity, is what
+    drives phase change). A previous version of this function collapsed
+    both to a single shared central-difference ∇T and factored out
+    (kᵥ − kₗ); that is only valid when ∇Tᵥ = ∇Tₗ, which is exactly the
+    condition that never holds at a genuine phase-change interface, and
+    it made the function vanish identically whenever kᵥ = kₗ (e.g. the
+    Stefan benchmark's own conductivities) regardless of the actual
+    temperature field, plus gave the wrong sign for real fluids where
+    kᵥ < kₗ (e.g. water: kᵥ≈0.024, kₗ≈0.677 W/m/K).
+
+    This version evaluates ∇Tᵥ and ∇Tₗ separately using phase-masked
+    one-sided (forward/backward) differences at each grid point: along
+    each axis, the one-sided stencil leaning toward the more-vapour
+    neighbour (higher φ) estimates ∇Tᵥ, and the stencil leaning toward
+    the more-liquid neighbour estimates ∇Tₗ. This is a local, grid-point
+    approximation appropriate for a smeared interface a few cells wide;
+    it is exact in the one-sided limit (one phase held at T_sat, i.e.
+    zero gradient there) used by the Stefan benchmark, and — unlike the
+    previous formula — it does not vanish merely because kᵥ = kₗ, only
+    when the two one-sided gradients genuinely coincide (no heat-flux
+    discontinuity). The fully general *probe* method of Roccon (2025)
+    Section 2.4 (extrapolating along n̂ by ~ε on each side rather than
+    using grid-adjacent one-sided differences) remains future work.
     """
     dx, dy = p.dx, p.dy
 
-    dTx = grad_x_2d(T, dx)
-    dTy = grad_y_2d(T, dy)
-
-    # Interface normal n̂ = ∇φ/|∇φ|
+    # Interface normal n̂ = ∇φ/|∇φ|  (central difference; unaffected by
+    # the one-sided-gradient fix below, since it doesn't multiply k)
     dphix = grad_x_2d(phi, dx)
     dphiy = grad_y_2d(phi, dy)
     mag   = np.sqrt(dphix**2 + dphiy**2 + 1e-14)
     nx, ny = dphix / mag, dphiy / mag
 
-    grad_T_n = dTx * nx + dTy * ny        # (∇T)·n̂
+    # One-sided (forward / backward) differences of T along each axis
+    Txf = (np.roll(T, -1, axis=-1) - T) / dx
+    Txb = (T - np.roll(T, 1, axis=-1)) / dx
+    Tyf = (np.roll(T, -1, axis=-2) - T) / dy
+    Tyb = (T - np.roll(T, 1, axis=-2)) / dy
 
-    mdot_surf = (p.k_v - p.k_l) * grad_T_n / p.h_lv
+    # Phase of each neighbour, to decide which one-sided stencil samples
+    # the vapour side and which samples the liquid side
+    phi_xf = np.roll(phi, -1, axis=-1)
+    phi_xb = np.roll(phi, 1, axis=-1)
+    phi_yf = np.roll(phi, -1, axis=-2)
+    phi_yb = np.roll(phi, 1, axis=-2)
+
+    dTx_v = np.where(phi_xf >= phi_xb, Txf, Txb)   # leans toward vapour neighbour
+    dTx_l = np.where(phi_xf >= phi_xb, Txb, Txf)   # leans toward liquid neighbour
+    dTy_v = np.where(phi_yf >= phi_yb, Tyf, Tyb)
+    dTy_l = np.where(phi_yf >= phi_yb, Tyb, Tyf)
+
+    grad_Tv_n = dTx_v * nx + dTy_v * ny    # (∇Tᵥ)·n̂
+    grad_Tl_n = dTx_l * nx + dTy_l * ny    # (∇Tₗ)·n̂
+
+    mdot_surf = (p.k_v * grad_Tv_n - p.k_l * grad_Tl_n) / p.h_lv
     mdot_vol  = mdot_surf * phi * (1 - phi) / p.eps
     return mdot_vol
