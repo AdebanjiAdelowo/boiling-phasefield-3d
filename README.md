@@ -153,7 +153,7 @@ is reported as a test failure rather than silently ignored.
 ## Extending to 3-D
 
 The `run_3d` function and all `*_3d` operator variants are already implemented.
-The 3-D extension is the main Year-1 PhD task:
+The 3-D extension is the current focus of this prototype's development:
 
 ```python
 from src import SimParams, run_3d
@@ -177,27 +177,13 @@ result = run_3d(p, phi0)
 
 ---
 
-## PhD roadmap
-
-| Year | Task | Status in this repo |
-|---|---|---|
-| 1 | 3-D spherical bubble benchmark | `run_3d` implemented, needs testing |
-| 1 | Full probe-based vaporisation rate (Eq. 12) | Simplified version in `energy.py`; full probe method is TODO |
-| 1 | Wall + outlet boundary conditions | Currently periodic only; wall BCs are TODO |
-| 2 | GPU port (Fortran + NVIDIA HPC-SDK) | FLOW36 fork, separate production repo |
-| 2 | DNS of nucleate boiling in turbulent channel | Requires HPC cluster |
-| 3 | Parameter studies: Re, ΔT, density ratio | Post-processing scripts |
-| 3 | Nusselt number scaling laws | `diagnostics.py::nusselt_number_2d` stub ready |
-
----
-
 ## Known limitations of this prototype
 
 1. **Surface tension instability with large density ratios.**
    The explicit CSF model requires time step Δt ~ √(ρᵥ dx³/σ) ~ 10⁻⁹ s for
    water (ρᵥ/ρₗ = 0.001, σ = 0.07 N/m). This is impractical for explicit
-   Euler. The bubble benchmark therefore uses σ = 0. Implicit surface tension
-   treatment is a Year-2 implementation task.
+   Euler. The bubble benchmark therefore uses σ = 0. An implicit surface tension
+   treatment is needed to lift this restriction.
 
 2. **Stefan-problem benchmark fails after an early transient; not validated.**
    The heat-flux vaporisation rate in `energy.py` evaluates temperature
@@ -210,8 +196,8 @@ result = run_3d(p, phi0)
    phi-dependent thermal diffusivity into spurious, sign-alternating
    vaporisation sites. Final error is 56% at t = 250 s; see
    `docs/Phase_Field_Boiling_Solver_Technical_Documentation.md` ("The Stefan
-   problem") for the full mechanism. The probe method and non-periodic
-   boundary conditions are both Year-1 implementation tasks.
+   problem") for the full mechanism. Fixing this requires implementing the
+   probe-based vaporisation rate and non-periodic boundary conditions.
 
 3. **Periodic boundary conditions only.**
    The pressure FFT solver assumes periodicity on all boundaries. Wall-bounded
@@ -228,18 +214,21 @@ result = run_3d(p, phi0)
    turbulent simulation at 512³ requires Fortran + GPU: this prototype is
    a validation tool only, not a production solver.
 
+6. **Fixed since initial development.** The Allen-Cahn mobility (`gamma`) dimensional scaling
+   and the `mdot_from_heatflux_2d` vaporisation closure both had bugs that have since been fixed
+   and re-verified against the bubble-growth benchmark; the 1-D Stefan-problem failure described
+   above is a separate, still-open issue.
+
 ---
 
-## Remaining Work
+## Possible Extensions
 
-Fixed and re-verified since the PhD roadmap above was written: the Allen-Cahn mobility
-(`gamma`) dimensional scaling and the `mdot_from_heatflux_2d` vaporisation closure (both
-previously buggy, now corrected and bubble-growth-benchmark-verified). Still open: the documented
-1-D Stefan-problem failure (root cause understood, unrelated to the two fixes above); the full
-3-D experiments and neural-operator surrogate work in the roadmap table above remain deferred and
-gated on compute availability, not attempted this phase. Portfolio-wide project status is tracked
-centrally in the author's Selected Projects documentation; this project's status there is
-DEFERRED RESEARCH.
+Completing and validating the 3-D spherical bubble benchmark, resolving the 1-D Stefan-problem
+failure (probe-based vaporisation rate and non-periodic boundary conditions, see above),
+wall-bounded (Dirichlet/Neumann) pressure solvers for turbulent-channel DNS, parameter studies
+over Reynolds number, superheat, and density ratio, Nusselt-number scaling laws using the
+existing `diagnostics.py::nusselt_number_2d` stub, and a neural-operator surrogate for the
+solver.
 
 ## Connection to Roccon's existing codebase
 
