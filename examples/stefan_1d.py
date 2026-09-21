@@ -1,158 +1,122 @@
 """
 1-D Stefan problem: superheated vapour drives vaporisation of liquid at the wall.
 
-Reproduces the benchmark in Roccon (2025), Section 3.2.
+Set-up follows Roccon (2025), Section 3.2 (matched densities, St = 0.2).  The
+solver is `src/stefan1d.py`; see that module's docstring for the scheme and for
+why each choice was made.
 
 Analytical solution
 -------------------
-Interface position:  δ(t) = 2ξ √(αᵥ t)
-where ξ satisfies:   ξ exp(ξ²) erf(ξ) = St / √π
-and the Stefan number is:  St = Cₚ,ᵥ (T_wall − T_sat) / h_lv
+Interface position:  delta(t) = 2 xi sqrt(alpha_v t)
+where xi satisfies:  xi exp(xi^2) erf(xi) = St / sqrt(pi)
+and the Stefan number is:  St = Cp_v (T_wall - T_sat) / h_lv
+
+The run starts at t0 = 24.7 s from the similarity state (a start away from the
+t -> 0 singularity) and ends at t = 250 s.
 
 Run
 ---
     cd boiling-phasefield-3d
-    python examples/stefan_1d.py
+    python examples/stefan_1d.py                 # single run, N = 200 (dx = 1 mm)
+    python examples/stefan_1d.py --refine        # N = 50, 100, 200, 400 convergence study
 """
-import sys, os
+import argparse
+import os
+import sys
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.special import erf
-from scipy.optimize import brentq
 
-from src.params      import SimParams
-from src.phase_field import ac_rhs_2d, mdot_volumetric
-from src.operators   import grad_x_2d
-from src.diagnostics import interface_position_1d
+from src.params import SimParams
+from src.stefan1d import run_stefan_1d
 
-# ── Parameters ────────────────────────────────────────────────────────────────
-# Matched viscosities and densities (ρᵥ=ρₗ → no flow expansion) so that only
-# the thermal problem needs solving — matching Roccon (2025) Section 3.2 setup.
-p = SimParams(
-    Nx=200, Ny=1,
-    Lx=0.2,  Ly=0.2/200,   # effectively 1-D (Ny=1 row)
-    dt=5e-4,
-    t_end=250.0,     # run from t0=24.7 s to t_f=250 s  (matching paper Section 3.2)
-    save_every=500,
-    rho_l=1.0,   rho_v=1.0,     # matched densities
-    mu_l=0.01,   mu_v=0.01,
-    sigma=0.0,                   # no surface tension
-    k_l=0.005,   k_v=0.005,
-    Cp_l=200.0,  Cp_v=200.0,
-    h_lv=1e4,
-    T_sat=0.0,
-    T_wall=10.0,                 # Stefan number St = Cp*(Tw-Ts)/h_lv = 0.2
-    mode='heat_flux',
-)
 
-alpha_v = p.k_v / (p.rho_v * p.Cp_v)
-St_num  = p.Cp_v * (p.T_wall - p.T_sat) / p.h_lv
-print(f"Stefan number  St = {St_num:.4f}")
-print(f"αᵥ = {alpha_v:.4e} m²/s")
+def make_params(nx, dt=5e-4, lx=0.2):
+    return SimParams(
+        Nx=nx, Ny=1, Lx=lx, Ly=lx / nx,
+        dt=dt, t_end=250.0,
+        rho_l=1.0, rho_v=1.0,          # matched densities: no expansion flow
+        mu_l=0.01, mu_v=0.01,
+        sigma=0.0,
+        k_l=0.005, k_v=0.005,
+        Cp_l=200.0, Cp_v=200.0,
+        h_lv=1e4,
+        T_sat=0.0, T_wall=10.0,        # St = Cp (T_wall - T_sat) / h_lv = 0.2
+        mode='heat_flux',
+    )
 
-# Analytical: solve  ξ exp(ξ²) erf(ξ) = St/√π
-xi = brentq(lambda xi: xi * np.exp(xi**2) * erf(xi) - St_num / np.sqrt(np.pi),
-            1e-8, 10.0)
-print(f"ξ  = {xi:.6f}")
 
-def delta_analytical(t):
-    return 2 * xi * np.sqrt(alpha_v * t) if t > 0 else 0.0
+def report(res, label):
+    h, ref = res['history'], res['ref']
+    print(f"\n{label}:  xi = {ref.xi:.6f}, St = {ref.St:.3f}, alpha_v = {ref.alpha:.3e} m^2/s")
+    print("    t [s]   delta_0.5 [m]  delta_mass [m]  delta_ana [m]   err_0.5 [%]  err_mass [%]")
+    for tq in (25, 30, 60, 100, 150, 200, 250):
+        i = int(np.argmin(np.abs(h['t'] - tq)))
+        t, da = h['t'][i], float(ref.delta(h['t'][i]))
+        print(f"  {t:7.2f}   {h['delta_half'][i]:12.6f}  {h['delta_mass'][i]:13.6f}  {da:12.6f}"
+              f"   {abs(h['delta_half'][i] - da) / da * 100:10.3f}  {abs(h['delta_mass'][i] - da) / da * 100:11.3f}")
+    i = -1
+    print(f"  crossings of phi=0.5 at end: {h['n_crossings'][i]},  phi in [{h['phi_min'].min():.4f}, {h['phi_max'].max():.4f}],"
+          f"  clipped mass: {h['clipped'][i]:.2e} m")
+    dE = h['E_sens'][i] - h['E_sens'][0]
+    print(f"  energy budget [J/m^2]: wall input {h['E_wall'][i]:.3f} (exact {ref.cumulative_wall_heat(h['t'][0], h['t'][i]):.3f}),"
+          f" clamp removal {h['E_clamp'][i]:.3f}, stored change {dE:.3f} (exact {ref.stored_energy(h['t'][i]) - ref.stored_energy(h['t'][0]):.3f}),"
+          f"\n    identity  wall - clamp - stored = {h['E_wall'][i] - h['E_clamp'][i] - dE:.2e}")
 
-# ── Initial condition ─────────────────────────────────────────────────────────
-# Start at t0 = 24.7 s to avoid the t→0 singularity (same as paper)
-t0     = 24.7
-delta0 = delta_analytical(t0)
-print(f"t₀ = {t0} s  →  δ(t₀) = {delta0:.4f} m")
 
-x   = np.linspace(0, p.Lx, p.Nx, endpoint=False)
-X2d = x[np.newaxis, :]           # shape (1, Nx) for 2-D ops with Ny=1
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--nx', type=int, default=200)
+    ap.add_argument('--refine', action='store_true')
+    ap.add_argument('--no-plot', action='store_true')
+    args = ap.parse_args()
 
-# φ=1 (vapour) for x < δ₀,  φ=0 (liquid) for x > δ₀
-phi0 = 0.5 * (1 - np.tanh((X2d - delta0) / (2 * p.eps)))
+    p = make_params(args.nx)
+    print(f"1-D Stefan: N = {p.Nx}, dx = {p.dx * 1e3:.3f} mm, eps = {p.eps * 1e3:.3f} mm, dt = {p.dt:g} s")
+    res = run_stefan_1d(p, t0=24.7, t_end=250.0, snapshot_times=(250.0,))
+    report(res, f"N = {p.Nx}")
 
-# Temperature: linear profile in vapour, T_sat in liquid (Roccon 2025 Eq. 27)
-T0 = np.where(
-    X2d < delta0,
-    p.T_wall - (p.T_wall - p.T_sat) * erf(X2d / (2*np.sqrt(alpha_v*t0))) / erf(xi),
-    p.T_sat
-)
+    if args.refine:
+        print("\nSpatial refinement (eps = 1.5 dx, dt = 5e-4 s), final-time interface error:")
+        print("    N     dx [mm]   err_0.5 [%]   err_mass [%]")
+        prev = None
+        for nx in (50, 100, 200, 400):
+            q = make_params(nx)
+            r = run_stefan_1d(q, t0=24.7, t_end=250.0, record_every=10 ** 9)
+            hh = r['history']
+            da = float(r['ref'].delta(hh['t'][-1]))
+            e5, em = (abs(hh['delta_half'][-1] - da) / da * 100, abs(hh['delta_mass'][-1] - da) / da * 100)
+            rate = "" if prev is None else f"   observed order {np.log2(prev / e5):.2f}"
+            print(f"  {nx:4d}   {q.dx * 1e3:7.3f}   {e5:10.4f}   {em:11.4f}{rate}")
+            prev = e5
 
-# ── Time integration (1-D: uy = 0, pure diffusion + phase-change) ─────────────
-phi = phi0.copy()
-T   = T0.copy()
-ux  = np.zeros_like(phi)
-uy  = np.zeros_like(phi)
-dx  = p.dx
+    if args.no_plot:
+        return
+    h, ref, x = res['history'], res['ref'], res['x']
+    phi, T = res['snapshots'][250.0]
+    fig, axes = plt.subplots(1, 3, figsize=(15, 4.5))
+    axes[0].plot(h['t'], ref.delta(h['t']) * 100, 'k-', lw=2, label='Analytical  delta = 2 xi sqrt(alpha_v t)')
+    axes[0].plot(h['t'][::8], h['delta_half'][::8] * 100, 'C0o', ms=4, label='Numerical (phi = 0.5)')
+    axes[0].set_xlabel('t  [s]'); axes[0].set_ylabel('Interface position  [cm]')
+    axes[0].set_title('Interface position'); axes[0].legend()
+    da = ref.delta(h['t'])
+    axes[1].semilogy(h['t'], np.abs(h['delta_half'] - da) / da * 100 + 1e-12, label='phi = 0.5')
+    axes[1].semilogy(h['t'], np.abs(h['delta_mass'] - da) / da * 100 + 1e-12, label='mass  int(phi) dx')
+    axes[1].set_xlabel('t  [s]'); axes[1].set_ylabel('relative error  [%]')
+    axes[1].set_title('Interface-position error'); axes[1].legend()
+    axes[2].plot(x * 100, phi, 'C0', lw=2, label='phi')
+    axes[2].plot(x * 100, T / p.T_wall, 'C3--', lw=2, label='T / T_wall')
+    axes[2].plot(x * 100, ref.temperature(x, 250.0) / p.T_wall, 'k:', lw=1.5, label='T / T_wall analytical')
+    axes[2].set_xlim(0, 8); axes[2].set_xlabel('x  [cm]')
+    axes[2].set_title('Fields at t = 250 s'); axes[2].legend()
+    fig.suptitle(f'1-D Stefan problem, N = {p.Nx}', fontweight='bold')
+    plt.tight_layout()
+    out = os.path.join(os.path.dirname(__file__), '..', 'stefan_1d_result.png')
+    plt.savefig(out, dpi=150, bbox_inches='tight')
+    print(f"\nPlot saved to {out}")
 
-t        = t0
-n_steps  = int(round((p.t_end - t0) / p.dt))
-times    = [t0]
-d_num    = [delta0]
-d_ana    = [delta0]
 
-print(f"\nRunning 1-D Stefan problem: {p.Nx} points, {n_steps} steps …")
-
-for step in range(n_steps):
-
-    # Vaporisation rate from heat-flux balance (Eq. 12, simplified).
-    # In the Stefan problem the liquid is at T_sat (∇T_liquid = 0), so only
-    # the vapour-side heat flux drives vaporisation: ṁ = kv (∇T·n̂) / h_lv
-    dT_dx  = grad_x_2d(T, dx)
-    dphidx = grad_x_2d(phi, dx)
-    mag    = np.abs(dphidx) + 1e-14
-    nx     = dphidx / mag                         # interface normal
-    mdot_surf_local = p.k_v * dT_dx * nx / p.h_lv
-    mdot_vol = mdot_surf_local * phi * (1 - phi) / p.eps
-
-    # Allen-Cahn step (no flow)
-    A       = ac_rhs_2d(phi, ux, uy, mdot_vol, p)
-    phi_new = np.clip(phi + p.dt * A, 0.0, 1.0)
-
-    # Energy: diffusion only in vapour, liquid held at T_sat
-    alpha_f = p.k_v / (p.rho_v * p.Cp_v) * phi   # only in vapour
-    diff_T  = grad_x_2d(alpha_f * grad_x_2d(T, dx), dx)
-    T_new   = T + p.dt * diff_T
-    T_new   = np.where(phi_new < 0.5, p.T_sat, T_new)   # liquid at T_sat
-    T_new[0, 0] = p.T_wall                              # wall BC
-
-    phi, T = phi_new, T_new
-    t += p.dt
-
-    if step % p.save_every == 0:
-        d_n = interface_position_1d(phi[0], x)
-        d_a = delta_analytical(t)
-        if d_n is not None:
-            times.append(t)
-            d_num.append(d_n)
-            d_ana.append(d_a)
-            err = abs(d_n - d_a) / d_a * 100
-            print(f"  t={t:6.1f} s  δ_num={d_n:.4f} m  δ_ana={d_a:.4f} m  err={err:.2f}%")
-
-print("Done.")
-
-# ── Plot ──────────────────────────────────────────────────────────────────────
-fig, axes = plt.subplots(1, 2, figsize=(11, 4.5))
-
-axes[0].plot(times, np.array(d_ana)*100, 'k-',  lw=2,   label='Analytical  δ=2ξ√(αᵥt)')
-axes[0].plot(times, np.array(d_num)*100, 'C0o', ms=5,   label='Numerical')
-axes[0].set_xlabel('t  [s]')
-axes[0].set_ylabel('Interface position δ  [cm]')
-axes[0].set_title('Stefan problem: interface position vs time')
-axes[0].legend()
-
-axes[1].plot(x*100, phi[0],         'C0',  lw=2, label='φ  (phase-field)')
-axes[1].plot(x*100, T[0]/p.T_wall,  'C3--', lw=2, label='T / T_wall')
-axes[1].axvline(delta_analytical(t)*100, color='gray', ls=':', lw=1, label='δ(t) analytical')
-axes[1].set_xlabel('x  [cm]')
-axes[1].set_title('Phase-field and temperature at t = {:.0f} s'.format(t))
-axes[1].legend()
-
-fig.suptitle('1-D Stefan Problem — Phase-Field Validation\n'
-             'Roccon (2025) Section 3.2 benchmark', fontweight='bold')
-plt.tight_layout()
-out = os.path.join(os.path.dirname(__file__), '..', 'stefan_1d_result.png')
-plt.savefig(out, dpi=150, bbox_inches='tight')
-print(f"Plot saved to {out}")
-plt.show()
+if __name__ == '__main__':
+    main()

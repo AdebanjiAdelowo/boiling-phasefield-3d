@@ -175,10 +175,17 @@ def ns_step_3d(phi_new, phi_old, ux, uy, uz, mdot_vol, p):
     adv_y = -rho_n * (ux*grad_x_3d(uy,dx) + uy*grad_y_3d(uy,dy) + uz*grad_z_3d(uy,dz))
     adv_z = -rho_n * (ux*grad_x_3d(uz,dx) + uy*grad_y_3d(uz,dy) + uz*grad_z_3d(uz,dz))
 
-    # Viscous stress
-    visc_x = mu_n * laplacian_3d(ux, dx, dy, dz)
-    visc_y = mu_n * laplacian_3d(uy, dx, dy, dz)
-    visc_z = mu_n * laplacian_3d(uz, dx, dy, dz)
+    # Viscous stress: mu lap(u) + grad(mu).grad(u), as in ns_step_2d (both drop the
+    # grad(u)^T part of div[mu(grad u + grad u^T)]).  The grad(mu).grad(u) terms were
+    # missing here, so a z-invariant 3-D run disagreed with the 2-D run whenever
+    # mu_v != mu_l (tests/test_consistency_2d_3d.py).
+    gmx, gmy, gmz = grad_x_3d(mu_n, dx), grad_y_3d(mu_n, dy), grad_z_3d(mu_n, dz)
+    visc_x = (mu_n * laplacian_3d(ux, dx, dy, dz)
+              + gmx * grad_x_3d(ux, dx) + gmy * grad_y_3d(ux, dy) + gmz * grad_z_3d(ux, dz))
+    visc_y = (mu_n * laplacian_3d(uy, dx, dy, dz)
+              + gmx * grad_x_3d(uy, dx) + gmy * grad_y_3d(uy, dy) + gmz * grad_z_3d(uy, dz))
+    visc_z = (mu_n * laplacian_3d(uz, dx, dy, dz)
+              + gmx * grad_x_3d(uz, dx) + gmy * grad_y_3d(uz, dy) + gmz * grad_z_3d(uz, dz))
 
     # Surface tension
     fsx, fsy, fsz = surface_tension_3d(phi_old, p)

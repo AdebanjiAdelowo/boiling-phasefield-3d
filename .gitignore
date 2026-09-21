@@ -1,3 +1,7 @@
 __pycache__/
 *.pyc
 *.pyo
+
+# Stefan diagnosis harness outputs
+scripts/stefan_diagnosis/*.pkl
+scripts/stefan_diagnosis/__pycache__/

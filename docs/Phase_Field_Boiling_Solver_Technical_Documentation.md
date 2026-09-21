@@ -423,8 +423,8 @@ The second line of that method is a defect, and Section 9.1 explains why.
 A consequence that matters for interpreting results: because $\varepsilon \propto \Delta x$,
 refining the grid *simultaneously* refines the physical model. Convergence studies in a
 diffuse-interface method therefore measure a combination of discretisation error and
-modelling error. The measured second-order convergence reported in Section 11.1 should be
-read in that light.
+modelling error. The convergence trend reported in Section 11.1 (whose previously documented
+second-order rate is currently *not reproduced*) should be read in that light.
 
 ## A survey of interface-capturing and interface-tracking methods
 
@@ -654,9 +654,10 @@ The practical consequences are the ones to remember:
   problem as $\varepsilon \to 0$.
 - The leading error is $\mathcal{O}(\varepsilon)$ in general and $\mathcal{O}(\varepsilon^2)$
   for well-designed formulations; since $\varepsilon \propto \Delta x$ in practice, this
-  contributes directly to the observed convergence order. Section 11.1 measures
+  contributes directly to the observed convergence order. Section 11.1 originally reported
   approximately second-order convergence for the bubble benchmark, consistent with the
-  latter.
+  latter; that rate is not currently reproduced (see the re-evaluation in Section 11.1), so
+  this consistency is unconfirmed.
 - Curvature-related artefacts, including spurious currents, scale with $\varepsilon$ and
   do not vanish at fixed $\varepsilon$ no matter how the flow solver is refined.
 
@@ -1794,6 +1795,15 @@ $-\left[\partial_x(\rho u_x u_j) + \partial_y(\rho u_y u_j)\right]$.
 
 ### Defect 3: the 3D viscous term drops the variable-viscosity correction
 
+**Update 2026-09-21: fixed for 3D** (parity with 2D; the transpose term below is still missing in both).
+It was found again independently by the extruded-consistency test (`tests/test_consistency_2d_3d.py`):
+with $\mu_v/\mu_l=0.01$ a $z$-invariant 3-D run departed from the 2-D run by 0.2–0.4% after 60 steps;
+after the fix the two agree to round-off along all three axes. With matched viscosities the defect was
+invisible (the missing terms are $\sim10^{-19}$ from rounding in $\mu_v\phi+\mu_l(1-\phi)$).
+Old versus new 3-D code on a sphere with non-trivial initial velocity (100 steps): at matched viscosity the results
+differ by at most $2\times10^{-13}$ relative (round-off), so equal-viscosity behaviour is unchanged; at
+$\mu_v/\mu_l=0.01$ they differ by $\sim10^{-3}$ in velocity and $\sim10^{-2}$ in pressure.
+
 The 2D viscous term retains a first-order correction for spatially varying viscosity:
 
 ```python
@@ -2333,8 +2343,9 @@ $1.53\times10^{-6}$ s at that resolution; re-running $N = 128$ at $\Delta t = 2\
 the trend below is a genuine spatial-convergence result and not an artefact of the varying
 $\Delta t$.
 
-Both errors converge cleanly: the slope error by factors of 2.88 and 3.53, the
-final-radius error by 3.82 and 4.14 — approximately **second-order convergence** in
+*As documented originally (not currently reproduced; see the re-evaluation below):* both errors
+converge cleanly: the slope error by factors of 2.88 and 3.53, the
+final-radius error by 3.82 and 4.14 — approximately second-order convergence in
 $\Delta x$ (with $\varepsilon\propto\Delta x$). This is
 exactly what the second-order central differencing and the $\mathcal{O}(\varepsilon^2)$
 modelling error together predict, and it reproduces Roccon's own observation for this
@@ -2358,107 +2369,251 @@ Distinguishing these is a well-defined next experiment: implementing the conserv
 momentum advection alone should shift the slope, and the magnitude of that shift would
 settle the question.
 
-**Verdict.** The bubble benchmark is a genuine success. It validates the mass source
-\eqref{eq:R2}, the divergence constraint \eqref{eq:R3}, the constant-coefficient Poisson
-formulation \eqref{eq:R18}, and the FFT solver, at a density ratio of $10^{-3}$, with
-demonstrated second-order convergence.
+**Verdict.** The bubble benchmark agrees with the analytic growth law and the error decreases
+systematically under grid refinement (final-radius error 10.4%, 2.8%, 1.0% for $N=32,64,128$ in the
+re-measurement below). It exercises the mass source \eqref{eq:R2}, the divergence constraint
+\eqref{eq:R3}, the constant-coefficient Poisson formulation \eqref{eq:R18}, and the FFT solver, at a
+density ratio of $10^{-3}$. The previously documented *second-order* rate is **not currently reproduced and is
+under re-evaluation**; no convergence order is claimed.
+
+### Re-evaluation of the convergence claim (2026-09-21)
+
+The 2-D prescribed-vaporisation path is bit-identical before and after the Stefan work (maximum difference in
+$\phi$ and $\mathbf u$ is 0 at $N=32,64,128$), and a golden-value regression test
+(`tests/test_bubble_convergence.py`) now protects it. Re-running the study independently with the repository's
+own code (t = 8 ms, $\dot m=0.1$, $R_0=1$ mm, box 10 mm, $\varepsilon=1.5\Delta x$):
+
+| $N$ | $\Delta t$ [s] | $t=0$ radius bias | final-radius error | slope error (fit, all output times) | slope error (fit, 2–8 ms) |
+|---|---|---|---|---|---|
+| 32 | $5\times10^{-6}$ | +29.31% | +10.35% | −13.35% | −12.13% |
+| 64 | $5\times10^{-6}$ | +8.59% | +2.78% | −4.47% | −3.77% |
+| 128 | $1\times10^{-6}$ | +2.23% | +0.95% | −0.67% | −0.23% |
+| 128 | $2\times10^{-6}$ | | +0.94% | −0.70% | −0.28% |
+| 128 | $5\times10^{-7}$ | | +0.91% | −0.74% | −0.34% |
+
+What reproduces: the $t=0$ diffuse-profile bias table above (1.2931, 1.0859, 1.0223 mm) exactly; the monotone decrease
+of every error measure with $N$; the $N=32$ and $N=64$ rows (documented: slope −13.20%, −4.59%; radius +10.42%,
++2.73%). What does not: the documented $N=128$ row (slope −1.30%, radius +0.66%) is not reproduced under either fitting
+window, and its stated insensitivity to $\Delta t$ is reproduced only in the sense that my $N=128$ slope error moves by
+0.04 percentage points over a fourfold change of $\Delta t$, at a different value. ($N=128$ at $\Delta t=5\times10^{-6}$ s
+exceeds the viscous stability limit and gives 10.6%; that is not a result.)
+
+Successive error ratios between $N=32\to64\to128$ are 3.7 then 2.9 for the final-radius error, 3.0 then 6.7 for the
+all-times slope error, and 3.2 then 16 for the 2–8 ms slope error. They depend on the fitting window, the slope error
+passes close to zero at $N=128$, and $\Delta t$ changes between $N=64$ and $N=128$ (conflating spatial and temporal
+error), so **no convergence order is justified by these data**. The final-radius diagnostic also contains the
+$O(\varepsilon^2)$ profile bias, opposite in sign to the slope error. Comparing the total vapour area with the area of the
+analytic diffuse profile at the analytic radius (a like-for-like reference free of that bias) gives −0.13%, +0.06%,
++0.51%: small at every resolution but not monotone. A cleaner study (a fixed $\Delta t$ small enough for all $N$, a fixed
+fitting window, and $N=256$) would be needed before quoting a rate.
 
 ## The Stefan problem
 
-![1D Stefan problem. Left: interface position $\delta(t)$, numerical (blue) against the analytical similarity solution $\delta = 2\xi\sqrt{\alpha_v t}$ (black); the numerical front stalls near 2.1 cm. Right: the phase field (blue) and normalised temperature (red) at $t = 250$ s, showing complete loss of monotonicity across the domain.](../stefan_1d_result.png)
+**Status: two separate things.**
 
-This benchmark fails, and the figure shows it unambiguously. The interface tracks the
-similarity solution briefly and then stalls near 2.1 cm while the analytical solution
-continues to 4.84 cm — a 56% error at $t = 250$ s. The right-hand panel shows why any
-comparison beyond the early transient is meaningless: the phase field has disintegrated
-into grid-scale oscillations spanning the entire domain, and the temperature field shows
-matching oscillatory spikes at *both* ends.
+*Dedicated 1-D Stefan solver (`src/stefan1d.py`).* It reproduces the analytical benchmark with first-order
+spatial convergence, reaching 0.079% interface-position error at $\Delta x = 0.125$ mm and $t = 250$ s
+(1.14, 0.61, 0.32, 0.16, 0.08% for $\Delta x = 2 \to 0.125$ mm); mass and energy budget diagnostics were
+verified. This is a result for the dedicated non-periodic 1-D solver with matched densities only.
 
-I instrumented the run to establish the mechanism, tracking the interface error alongside
-two additional diagnostics: the number of $\phi = 0.5$ crossings in the domain (a count of
-spurious interfaces), and the integral $\int\phi\,\mathrm{d}x$ (the total vapour content,
-which for a clean single front equals $\delta$).
+*General multiphase heat-flux pathway (`run_2d(mode='heat_flux')`, `energy.py`).* It remains unvalidated
+and under validation. `src/stefan1d.py` does **not** resolve its issues: an exploratory extruded-Stefan run
+through it still shows substantial error and temperature undershoot (see Remaining limitations). Nothing
+in this section should be read as validating the general pathway.
 
-| $t$ [s] | $\delta_{\rm num}$ [m] | $\delta_{\rm ana}$ [m] | error | $\int\phi\,\mathrm{d}x$ [m] | crossings |
-|---|---|---|---|---|---|
-| 25 | 0.01530 | 0.01532 | 0.12% | 0.01582 | 1 |
-| 26 | 0.01556 | 0.01562 | 0.40% | 0.01639 | 2 |
-| 30 | 0.01596 | 0.01678 | 4.89% | 0.01804 | 2 |
-| 40 | 0.01729 | 0.01938 | 10.78% | 0.02060 | 2 |
-| 60 | 0.01854 | 0.02374 | 21.87% | 0.02544 | 2 |
-| 80 | 0.01995 | 0.02741 | 27.21% | 0.02927 | 2 |
-| 100 | 0.02123 | 0.03064 | 30.73% | 0.03260 | 6 |
-| 150 | 0.02125 | 0.03753 | 43.38% | 0.05616 | 20 |
-| 200 | 0.02125 | 0.04333 | 50.96% | 0.07129 | 34 |
-| 250 | 0.02130 | 0.04840 | 56.02% | — | — |
+![1D Stefan problem with the corrected solver, N = 200. Left: interface position against the analytical similarity solution. Middle: relative error of the phi = 0.5 and mass-based positions. Right: phase field and temperature at t = 250 s against the analytical profile.](../stefan_1d_result.png)
 
-This separates the failure into two distinct phases.
+![The legacy scheme's failure (kept for the record; produced by commit c125ad6, gamma = eps). The front stalls near 2.1 cm and the fields disintegrate.](figures/stefan_1d_legacy_failure.png)
 
-**Phase 1 ($t \lesssim 100$ s): systematic under-prediction.** The error grows smoothly
-from 0.12% to 31% with the field still essentially clean (2 crossings, the second being the
-unavoidable periodic wrap-around). The interface consistently *lags* the analytical
-solution. This is the signature of an under-estimated vaporisation rate, and its cause is
-the missing probe method. The energy step imposes
-`T_new = np.where(phi_new < 0.5, p.T_sat, T_new)`, so the temperature is clamped to
-$T_{\rm sat}$ everywhere on the liquid side. The vapour-side gradient at the interface is
-then evaluated with a *central* difference that straddles that clamp, sampling one node of
-genuine superheated vapour and one node of clamped liquid. The result is approximately half
-the true one-sided gradient — so $\dot m$ is under-estimated by roughly a factor of two,
-and the front lags. This is exactly the deficiency the repository README already
-identifies, and the trace confirms it quantitatively.
+### Verification of the reference
 
-**Phase 2 ($t \gtrsim 100$ s): numerical disintegration.** From $t = 100$ s the reported
-$\delta_{\rm num}$ *freezes* at 0.02125 m while $\int\phi\,\mathrm{d}x$ keeps climbing —
-reaching 0.0713 m at $t = 200$ s, which is 65% *more* vapour than the analytical
-$\delta = 0.0433$ m. The crossing count explodes from 6 to 34. The interpretation is
-unambiguous: vaporisation is still occurring, indeed over-vigorously, but the vapour is
-being deposited as spurious blobs scattered through the domain rather than at the front,
-and `interface_position_1d`, which returns the *first* crossing, has locked onto a spurious
-one.
+The similarity solution was checked independently of its own derivation
+(`tests/test_stefan_1d.py`): the Stefan condition $\rho h\,\dot\delta = -k\,\partial_xT|_{\delta^-}$
+holds to $10^{-8}$ by finite differences of the closed forms; the exact energy budget
+$\mathrm dE/\mathrm dt = q_{\rm wall} - \rho h\dot\delta$ closes to $10^{-7}$ (at St = 0.2 about 91%
+of the wall heat is latent); and a front-fixing (Landau-transform) solve of the moving-boundary
+problem by a stiff integrator agrees with $\delta = 2\xi\sqrt{\alpha_vt}$ to $10^{-7}$ up to
+$t = 250$ s. The numerical problem is the same physical problem (matched densities, one
+superheated phase, liquid at $T_{\rm sat}$, wall Dirichlet). The sign chain was checked: $\hat n$
+points into the vapour, $\partial_xT<0$ in the vapour, so $\dot m = k_v\,\partial_xT\,\hat n/h_{lv}>0$
+and $\dot\delta = \dot m/\rho_v>0$.
 
-The mechanism is a closed feedback loop with four links, each of which is individually
-defensible and which together are fatal:
+### Reproduction of the legacy failure
 
-1. **The saturation clamp creates a $C^0$ discontinuity in $T$.** Overwriting
-   $T = T_{\rm sat}$ wherever $\phi < 0.5$ inserts a kink at the interface whose location
-   snaps between grid cells as the front advances.
-2. **Central differences have zero dissipation at the $2\Delta x$ mode.** As established in
-   Section 8.1, the modified wavenumber $\sin(kh)/h$ vanishes at $k = \pi/h$. Differencing
-   a discontinuity excites the Nyquist mode, and nothing in the scheme damps it.
-3. **The interface normal amplifies the oscillation.** The vaporisation rate uses
-   `nx = dphidx / (|dphidx| + 1e-14)`, a pure sign function. Once $\phi$ carries even a
-   small $2\Delta x$ ripple, $\partial_x\phi$ changes sign at every local extremum, so
-   $\hat n$ flips, and the source $\dot m''' \propto \hat n$ alternates between vaporisation
-   and condensation on adjacent cells. This converts a small ripple into a large,
-   sign-alternating source.
-4. **The variable diffusivity closes the loop.** The example uses
-   `alpha_f = alpha_v * phi`, so an oscillatory $\phi$ produces an oscillatory diffusion
-   coefficient, and $\partial_x(\alpha\,\partial_x T)$ with a checkerboard $\alpha$ on a
-   collocated grid is a textbook odd–even decoupling generator. That feeds fresh
-   oscillation back into $T$, and hence into link 1.
+Reproduced qualitatively, **not with the documented numbers.** The tracked figure and the table that
+used to be here were produced by commit c125ad6, before the mobility fix 6c114f9 changed the default
+$\gamma$ from $\varepsilon$ ($1.5\times10^{-3}$) to $0.1$ m/s. Running the unchanged example:
 
-Two further factors accelerate the collapse. The `np.clip(phi, 0, 1)` in the phase-field
-step masks the unboundedness — the trace confirms $\phi$ stays within $[0,1]$ throughout —
-but converts it into a non-smooth, clipped field rather than preventing it, so the symptom
-that the boundedness theory is designed to warn about is suppressed. And the periodic
-boundary conditions are simply wrong for this problem: the wall at $x = 0$ is wrapped onto
-the outlet at $x = L_x$, which is why a second interface exists from $t = 26$ s and why the
-temperature field in the figure shows spikes at *both* ends. The wall Dirichlet condition
-`T_new[0,0] = p.T_wall` is imposed at a single node whose left neighbour, under `np.roll`,
-is the rightmost cell of the domain.
+| $t$ [s] | c125ad6 ($\gamma=\varepsilon$) | HEAD before this work ($\gamma = 0.1$) |
+|---|---|---|
+| 25 | 0.11% | 2.05% |
+| 26 | 0.38% | 18.0% |
+| 30 | 4.83% | 2.23% |
+| 60 | 21.9% | 31.4% |
+| 100 | 30.7% | 46.9% |
+| 150 | 43.4% | 56.6% |
+| 250 | **56.02%** | **66.41%** |
 
-**Verdict.** The Stefan benchmark is not currently validated, and Section 12 records it as
-such. The value of the run is diagnostic: it isolates two required corrections — the probe
-method for one-sided gradients (Phase 1) and non-periodic boundary conditions plus an
-oscillation-control strategy (Phase 2) — and gives a quantitative target, since Phase 1
-error should fall below a few percent once probes are in place.
+**Provenance.** The c125ad6 column reproduces the previously documented table exactly (and HEAD with
+$\gamma=1.5\times10^{-3}$ reproduces 56.02% too), so ~56.02% is the historical, pre-$\gamma$-fix figure, and it
+is why earlier README/portfolio text said 56%. The unmodified pre-correction HEAD (c9a2842) gives ~66.4% with the
+same script. Neither number is a result of the corrected dedicated solver, whose error at $t=250$ s is
+0.079–1.14% (table below); neither should be quoted as the current state. The full legacy run takes about 40 s,
+not 5 min.
 
-It is worth being explicit that this is a failure of *this prototype*, not of the method.
-Roccon (2025) reports "an excellent agreement among present results, the
-analytical profiles and the archival literature data of Sun et al. for the entire range of
-density ratios considered" for exactly this benchmark, using the full probe method, a
-staggered grid, and proper wall/outlet boundary conditions. The gap between his result and
-this one is a precise inventory of what this prototype still lacks.
+### Diagnosis
+
+Instrumenting the legacy run showed that the failure is **not a late-time collapse after a clean
+transient**. The temperature field is already a $2\Delta x$ sawtooth 0.3 s into the run
+($T = 10,\ 3.7,\ 8.6,\ 5.2,\ 7.1,\dots$ at $t = 25.0$ s), spurious vapour mass appears by
+$t\approx26$–27 s ($+0.037$ m of $\int\phi\,\mathrm dx$ against an analytic $+0.0007$ m), and by
+$t=250$ s the wall has injected 1621 J/m² against an exact 365 J/m² while the saturation clamp has
+removed 1626 J/m², i.e. the implicit latent sink is decoupled from the vaporisation source.
+
+The failure is the product of **several interacting defects**, not one. No single change cures the legacy
+scheme: applied one at a time to the unmodified HEAD, each of the changes below leaves the $t=250$ s error at
+55–71% (HEAD 66.4%; $\gamma=1.5\times10^{-3}$ 56.0%; adaptive $\gamma$ 54.7%; wrapped neighbour set to
+$T_{\rm wall}$ 66.3%; compact stencil 66.3%; probe closure 66.6%; backward-difference closure 70.7%; non-periodic
+boundary alone 55.5%). Conversely, removing one component at a time from the corrected scheme degrades it by very
+different amounts (table below). These experiments show that each listed component is *necessary in the tested
+configuration*; they are not a full factorial design, interactions between components were not separated, and no
+component is shown to be the unique root cause.
+
+Each candidate cause was isolated in the experiments below (harness: `scripts/stefan_diagnosis/`,
+whose default configuration reproduces the legacy scheme bit-for-bit, checked to 0.0 over 3000 steps).
+Interface errors are relative, $\phi=0.5$ front position.
+
+**Energy equation alone (interface prescribed exactly).** With the interface set to the exact
+$\delta(t)$, no Allen–Cahn dynamics and no closure involved:
+
+| scheme | max $\lvert T-T_{\rm ana}\rvert$ | sawtooth amplitude | wall flux (exact: 3.37 → 1.06) |
+|---|---|---|---|
+| legacy: nested $\partial_x(\alpha\partial_xT)$, wall wrapped | 3.2–9.4 K | 4.8–9.6 K | 68–99 W/m² |
+| nested, wrapped neighbour of the wall set to $T_{\rm wall}$ | 0.34–1.4 K | 0.2–1.1 K | 2.9–8.1 W/m² |
+| compact conservative stencil | 0.35–0.85 K | 0 by $t=60$ s | within 5% at 250 s |
+
+The nested central difference $D_1(\alpha D_1T)$ has a null mode at $2\Delta x$ (even and odd nodes
+decouple) and the periodic wrap gives node 1 the wrong wall gradient. This shows the legacy energy step is defective *in
+isolation* (with an exact interface); its share of the coupled failure is assessed by the leave-one-out table below,
+not inferred from this table alone.
+
+**Five distinct items, kept separate.** (1) *Central-gradient vaporisation closure*: a grid-point central difference
+times the sign of $\partial_x\phi$ straddles the clamp. (2) *Wide energy stencil*: the nested
+$D_1(\alpha D_1T)$ operator, with a periodic wrap at the wall. (3) *Diffusivity formulation*: $\alpha_v\phi$ in the
+example versus the mixture rule R.10. (4) *Front-temperature probe assumption*: a probe that takes $T=T_{\rm sat}$ at
+the front, which the staircase clamp violates. (5) *Mass-source representation*: $\dot m\,\phi(1-\phi)/\varepsilon$
+versus $\dot m\,\lvert\nabla\phi\rvert$.
+
+**Leave-one-out from the corrected scheme** (N = 200, $\Delta x=0.5$ mm; final-time error at
+$t=250$ s, corrected scheme 0.32%):
+
+| component reverted to legacy (all else corrected) | error at 250 s | reading |
+|---|---|---|
+| vaporisation gradient: grid-point central difference $\times\,\mathrm{sign}(\partial\phi)$ | 96% | degrades the result fatally |
+| energy stencil: nested (wide) | 55% | degrades the result strongly |
+| diffusivity $\alpha_v\phi$ instead of Roccon Eq. R.10 mixture rule ($\alpha_l=\alpha_v$ here, so constant) | 17% | degrades the result |
+| probe assuming $T_f=T_{\rm sat}$ at the front | 9.0% | degrades the result (the staircase clamp violates the assumption) |
+| mass source $\dot m\,\phi(1-\phi)/\varepsilon$ instead of $\dot m\,\lvert\nabla\phi\rvert$ | 5.5% (N=200), **24% (N=400), 30% (N=800)** | degrades the result, and increasingly so under refinement |
+| periodic wrap (compact stencil) | 0.32% (unchanged) | no effect on error, but a second crossing is reported (location not inspected) |
+| Allen–Cahn flux: nested instead of compact | 0.317% vs 0.316% (N=200); 0.160 vs 0.159 (N=400); 0.080 vs 0.079 (N=800) | **not a cause** |
+| $\gamma$: 0.1 (HEAD default) or $1.5\times10^{-3}$ | 0.295%, 0.294% | **no effect with the corrected source** |
+
+**The mass source: the dominant identified source of the refinement-dependent failure.** (It is the only reverted
+component whose error grows under refinement; it is not proven to be the sole root cause.) $\phi(1-\phi)/\varepsilon$ equals $\lvert\nabla\phi\rvert$ only while the layer has
+exactly its equilibrium width; the resulting production rate is $\dot m\,\varepsilon_{\rm eff}/\varepsilon$,
+so a broader layer makes more vapour and the front runs ahead. A constant-speed front test shows the
+layer width growing to 1.4–3× the design width and the speed error reaching +23% to +168%, at every
+$\gamma/v$ tried, for both Allen–Cahn operators. $\dot m\,\lvert\nabla\phi\rvert$ integrates to exactly
+$\dot m$ for any monotone profile and gives speed ratio 1.000 and width ratio 1.00 in the same test.
+The large-$\gamma$ pinning found earlier (front driven at the exact Stefan speed does not move at all at
+$\gamma=0.1$ m/s) is specific to the *nested Allen–Cahn operator combined with the equilibrium-shape
+source*: with the compact operator it does not pin, and with $\lvert\nabla\phi\rvert$ it does not pin
+either. So the large default $\gamma$ mattered only in the legacy operator/source pairing, and has no effect on the corrected
+benchmark's error. (The mode-blind default itself is discussed under Remaining limitations; it is not changed here.)
+
+**The interface flux.** With exact $\phi$ prescribed and the staircase clamp, the flux a probe sees at the
+front is 1.15–1.4× exact (and does not converge under refinement, because the layer and the probe distance
+both scale with $\Delta x$); an extrapolated central gradient taken 2 and 4 cells behind the front is exact to
+about 3%. With a sub-grid Dirichlet condition at the true front the probe error was 0.1–0.3% at N = 100, 200
+(exploratory: my ghost-value implementation was unstable at N = 400, 800, and those rows are not results).
+$\alpha_v\phi$ in the layer overstates the flux by about 1.4–1.5× under every measure and does not vanish.
+
+**Statements of the previous diagnosis that the evidence does not support.** (i) That the error is a smooth
+under-prediction until $t\approx100$ s and a collapse afterwards (at HEAD the field is corrupted from the first
+seconds). (ii) That a central gradient straddling the clamp gives "about half" the true gradient and this is the
+dominant Phase-1 error (the gradient closure matters, 96% vs 0.32%, but not through a clean factor of two, and
+the closure alone does not repair the run). (iii) That periodic wrapping "accelerates the collapse" (it is
+catastrophic with the wide stencil, and irrelevant to the error with the compact one). The prior diagnosis's
+identification of the saturation clamp, the interface normal and the collocated variable-diffusivity operator as
+a feedback loop is consistent with the sawtooth found above but was not separately isolated.
+
+### The corrected scheme
+
+`src/stefan1d.py`: non-periodic grid (wall node 0, outlet node held at $T_{\rm sat}$); compact conservative
+face-centred diffusion with $\alpha=\alpha_{\rm mix}(\phi)$; saturation clamp $T=T_{\rm sat}$ where
+$\phi<0.5$ (Roccon's saturation argument; no $S_t$); vaporisation rate $k_v\lvert\partial_xT\rvert/h_{lv}$ at
+the $\phi=0.5$ point from a gradient extrapolated linearly from central differences at $h$ and $2h$ behind it
+($h=2\Delta x$); mass source $\dot m\lvert\partial_x\phi\rvert$; $\gamma = \dot m/\rho_v$ (the interface speed);
+conservative face-flux Allen–Cahn with zero end fluxes. The 1-D probe is a simplified probe method in the
+spirit of Roccon's Section 2.4, not a reproduction of it (I could not access the primary paper to check its
+details). First-order explicit Euler in time.
+
+### Convergence and conservation (corrected scheme)
+
+$\varepsilon=1.5\Delta x$, $\Delta t=\min(5\times10^{-4},\,0.2\,\Delta x^2/\alpha_v)$, $t_0=24.7$ s to 250 s,
+domain 0.1 m. Reproduce with `python examples/stefan_1d.py --refine` (which uses a 0.2 m domain and
+$\Delta t=5\times10^{-4}$ s and gives identical errors at equal $\Delta x$).
+
+| $\Delta x$ [mm] | $N$ | error at 250 s | observed order | max error over run | mass-front error at 250 s | wall heat vs exact | latent (clamp) vs $\rho h\Delta\!\int\!\phi$ |
+|---|---|---|---|---|---|---|---|
+| 2.000 | 50 | 1.142% | | 1.54% | 0.860% | −1.9% | −0.85% |
+| 1.000 | 100 | 0.615% | 0.89 | 0.84% | 0.480% | −0.95% | −0.41% |
+| 0.500 | 200 | 0.316% | 0.96 | 0.43% | 0.245% | −0.46% | −0.18% |
+| 0.250 | 400 | 0.159% | 0.99 | 0.22% | 0.125% | −0.23% | −0.09% |
+| 0.125 | 800 | 0.079% | 1.00 | 0.11% | 0.063% | −0.11% | −0.04% |
+
+In every run: exactly one $\phi=0.5$ crossing, no clipping ($\phi\in[0,1]$ with zero clipped mass), and the
+discrete identities hold to round-off, $\Delta E_{\rm stored}=\Sigma E_{\rm wall}-\Sigma E_{\rm clamp}$ to
+$\lesssim10^{-10}$ J/m² and $\Delta\!\int\!\phi=\int\!\mathrm{source}$ to $\lesssim10^{-12}$ m. The order is
+first, as expected of a staircase saturation clamp plus explicit Euler; the coarsest level is pre-asymptotic
+($\delta_0$ is under 4 cells wide at $N=25$, which is excluded).
+
+**Time step.** Halving $\Delta t$ six times (2.5e-3 to 7.8e-5 s, N = 200) leaves the error at every reported time
+unchanged to three digits: the spatial error dominates. Against the finest-$\Delta t$ solution the temporal
+difference falls from $1.5\times10^{-4}$% to $5\times10^{-6}$% at 250 s with individual orders 1.4, 0.5, 1.3, 1.6
+(noisy because the front position jitters with grid snapping): consistent with first order, negligible in size,
+and *not* offered as a demonstrated temporal convergence rate.
+
+**Interface thickness.** At fixed $\Delta x=0.25$ mm, $\varepsilon/\Delta x=1,\ 1.25,\ 1.5,\ 2,\ 3,\ 4$ gives final
+errors 0.161, 0.160, 0.159, 0.157, 0.155, 0.154%: a change of 0.007 percentage points over a fourfold change in
+$\varepsilon$. At fixed $\varepsilon=1.5$ mm, refining $\Delta x$ ($\varepsilon/\Delta x=1.5,3,6,12$) gives
+0.615, 0.306, 0.153, 0.076%, halving each time. So in this range the error is spatial discretisation error, first
+order in $\Delta x$ irrespective of $\varepsilon$; no diffuse-interface (model) contribution is resolvable, and
+$\varepsilon$ was not taken below $\Delta x$.
+
+**Sensitivities.** $\gamma$ from $10^{-4}$ to 0.1 m/s changes the final error by under 0.03 percentage points;
+below the boundedness bound ($\gamma_c<0.5$ for $\varepsilon^*=1.5$) a trace of clipping appears
+($10^{-6}$ m at $\gamma_c=0.25$), consistent with Mirjalili et al. (2020). Probe distance from 1 to 4 cells:
+0.29–0.32%. Other Stefan numbers (St = 0.1, 0.4) stay within 2% (test).
+
+### Remaining limitations
+
+* **General multiphase heat-flux pathway: unvalidated.** Only the dedicated matched-density, one-phase, 1-D solver
+  is benchmarked. The general pathway is not that solver: extruding the same problem in $y$ through `run_2d(mode='heat_flux')` (periodic operators, no wall
+  boundary condition, grid-point closure) gives 5.7% error at $t=28$ s and 24% at $t=40$ s, with $T$ undershooting
+  to $-0.97$ K (a short exploratory run, two data points), against 0.42% and 0.76% for the new solver at the same grid.
+  The probe closure, wall/outlet conditions and compact energy stencil have not been generalised to 2-D/3-D, and
+  `src/stefan1d.py` should not be read as evidence that the general pathway works.
+* **`SimParams.gamma` default in `heat_flux` mode (identified, not changed).** The default is
+  $\max(\dot m_{\rm surf}/\rho_v,\ \Delta x/\Delta t\times10^{-3})$ in every mode, so a `heat_flux` run inherits
+  0.1 m/s from `mdot_surf`, a parameter documented as used only in `prescribed` mode; that is ~300x the Stefan interface
+  speed. Changing it to the $\Delta x/\Delta t$ fallback (2e-3 m/s here) was tried and *withdrawn from this work*: the
+  replacement value is itself unvalidated (it lands in an erratic regime of the legacy operators, $\gamma/v\approx7$),
+  the dedicated solver does not use `SimParams.gamma`, and choosing a proper rule (a run-time $\gamma$ tied to the
+  interface speed) belongs with the general heat-flux pathway. No previously validated 2-D bubble result depends on it.
+* The library's $S_t$ (Defect 4) is still not Eq. (R.11) and the nested energy operator is still in `energy.py`.
+* First-order accuracy; density-ratio ($\rho_v\neq\rho_l$) Stefan flow not tested.
+* Roccon's own Stefan comparison (staggered grid, full probe method) was not consulted directly.
 
 \newpage
 
@@ -2469,6 +2624,14 @@ repository README with the defects identified in Section 9 and the failure analy
 Section 11.2. They are ordered by the priority I assign them for the next stage of work.
 
 ## Vaporisation rate: no probe interpolation, and a broken library function
+
+**Update 2026-09-21.** The Stefan-specific statements in this section describe the legacy inline scheme.
+The measured picture is in "The Stefan problem" (Section 11.2): the failure was dominated by the energy
+operator, the mass-source form and the interface-flux measurement, and it is fixed for the dedicated 1-D solver
+`src/stefan1d.py`. The library heat-flux path (`energy.mdot_from_heatflux_2d`, periodic operators) has *not*
+been brought to that standard and still fails an extruded Stefan problem (5.7% at $t=28$ s, 24% at $t=40$ s).
+The 31% figure and the "roughly half the true gradient" mechanism quoted below are the legacy diagnosis and
+are not confirmed as the dominant error by the isolation experiments.
 
 The heat-flux closure evaluates temperature gradients at grid points with central
 differences rather than at probe points $\mathbf{x}_i \pm \Delta\mathbf{n}$ from the
@@ -2607,7 +2770,7 @@ Ordered by priority, these are the fixes that should precede any new physics:
    probe, form the one-sided gradients, and evaluate \eqref{eq:R12}. This addresses the
    dominant Stefan error directly and supersedes the interim $\phi$-masked one-sided-gradient
    fix now applied to Defect 5 (Section 9.6) with the more accurate probe-based gradients.
-2. ~~**Fix $\gamma$** to a velocity scale satisfying \eqref{eq:bounded}~~ — **done**
+2. ~~**Fix $\gamma$** to a velocity scale satisfying~~ \eqref{eq:bounded} — **done**
    (Section 9.1). Still outstanding: recomputing $\gamma = |\mathbf{u}|_{\max}$ each step
    rather than using a fixed default, then removing the `np.clip` and verifying that
    boundedness holds *analytically*, as Mirjalili et al. (2020) guarantee —
@@ -2622,8 +2785,24 @@ Ordered by priority, these are the fixes that should precede any new physics:
 
 ## Three-dimensional validation
 
+**Status 2026-09-21: 3-D solver verified, not physically validated.** The 3-D prescribed-vaporisation path was
+run and *numerically verified*: the anisotropic-box Poisson manufactured solution converges at orders 1.78 and 2.04;
+the projection of a smooth source is consistent at orders 1.76 and 1.94; total phase mass changes by exactly the
+integrated source; and $z$-, $y$- and $x$-invariant 3-D runs reproduce the 2-D run to round-off. The last of these is
+an implementation correction discovered through dimensional-consistency verification: the 3-D viscous operator was
+missing the $\nabla\mu\cdot\nabla\mathbf u$ terms that the 2-D operator has, invisible at matched viscosity and a
+0.2–0.4% mismatch at $\mu_v/\mu_l=0.01$ (Defect 3, fixed for 3-D by parity with 2-D). The old implementation fails exactly
+the viscosity-contrast cases of the consistency test; the corrected one agrees with 2-D to round-off.
+
+A separate sphere-growth check compares the numerical volume with the volume of the analytic *diffuse* profile at
+$R_0+(\dot m/\rho_v)t$: 0.08–0.11% at $N=24,32,48,64$. That error is flat in $N$, so it is **not a convergence result**;
+it is a consistency check of the mass-source and transport path only. (Compared with the sharp-sphere radius the
+diagnostic is off by +72%, +48%, +25% at $t=0$ for $N=24,32,48$, purely from the diffuse-profile offset.)
+No physical 3-D boiling benchmark has been run, no physical validation is claimed, and the 3-D heat-flux mode does not
+exist (`run_3d` raises `NotImplementedError`).
+
 All `*_3d` operators, `ac_rhs_3d`, `ns_step_3d`, `solve_poisson_3d` and `run_3d` are
-written; none has been validated. The natural first test is the 3D analogue of the bubble
+written; none has been validated as a physical benchmark. The natural first test is the 3D analogue of the bubble
 benchmark, for which the analytical solution is the same law \eqref{eq:Rt} — the derivation
 of Section 10.1 in spherical geometry gives $\mathrm{d}V/\mathrm{d}t = \dot m\,4\pi R^2/\rho_v$
 with $V = \tfrac{4}{3}\pi R^3$, hence again $\mathrm{d}R/\mathrm{d}t = \dot m/\rho_v$. The
@@ -2635,6 +2814,34 @@ A $64^3$ run at the bubble-benchmark parameters is well within NumPy's reach and
 validate the 3D operator set, the 3D FFT Poisson solve, and the 3D coupling — the entire
 Year-1 3D task — on a laptop. The `indexing='ij'` inconsistency noted in Section 9.2 must
 be fixed first.
+
+### Proposed 3-D physical benchmark (a proposal; not run; requires literature verification)
+
+**This is a proposal only.** No reference formula below is asserted; every reference solution and acceptance number
+must be taken from, and checked against, the primary sources before use, as the 1-D reference was verified here.
+
+**Candidate benchmark.** A spherical vapour bubble growing in an infinite, uniformly superheated liquid, where growth is
+controlled by heat diffusion (the 3-D counterpart of the 1-D Stefan problem). *Candidate* references to be located and
+checked: the classical diffusion-controlled growth analyses associated with Plesset and Zwick (1954) and Scriven (1959).
+I have **not** read these; I do not state their formulae here, and whether their assumptions (negligible surface tension
+and inertia, the density ratio, the Jakob-number regime) match what this solver can represent is an open question. A
+matched-density version reduces to a spherical Stefan problem without flow.
+
+**Quantities to measure (proposed).** $R(t)$ from both $\phi=0.5$ and $\int\phi$; sphericity of the $\phi=0.5$
+surface; closure of the energy budget (heat in, latent heat, stored energy); the phase-mass identity.
+
+**Prerequisites that do not exist yet:** a 3-D heat-flux mode with a validated probe closure, a compact conservative
+energy stencil in 3-D, far-field boundary treatment that does not wrap (or a domain large enough that the thermal
+layer never reaches the boundary), and the $\rho_v\neq\rho_l$ extension.
+
+**Expected cost (estimate from measured timings).** A $64^3$ prescribed-rate run took ~34 s for 800 steps (~0.04 s/step);
+$128^3$ is ~8x per step, and an explicit diffusive step limit $\propto\Delta x^2$ multiplies the step count, so a
+thermally resolved run would be of order $10^5$ steps (hours at $128^3$ in NumPy), i.e. beyond the Python prototype.
+
+**Acceptance criteria (provisional; to be fixed against the verified reference before running):** agreement of $R(t)$ with
+the verified reference and a decreasing error over at least three resolutions; the two radius measures agreeing with each
+other; sphericity error below $\varepsilon$; energy and mass identities to round-off; no reliance on clipping. Until such a
+comparison exists the 3-D solver must not be called validated.
 
 ## Wall and outlet boundary conditions
 
@@ -2896,3 +3103,5 @@ produced by running `examples/bubble_2d.py` and `examples/stefan_1d.py` from thi
 repository, together with two additional instrumented scripts (the grid-refinement study of
 Section 11.1 and the Stefan diagnostic trace of Section 11.2) whose parameters are stated
 in full in those sections.
+The Stefan isolation, leave-one-out, time-step, interface-thickness and sensitivity experiments of
+Section 11.2 were produced with the harness in `scripts/stefan_diagnosis/` (see its README).

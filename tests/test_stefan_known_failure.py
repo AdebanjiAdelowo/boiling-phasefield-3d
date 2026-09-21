@@ -1,34 +1,22 @@
-"""Diagnostic/regression test documenting the known, unresolved failure of
-the 1-D Stefan-problem benchmark described in
-docs/Phase_Field_Boiling_Solver_Technical_Documentation.md ("The Stefan
-problem"): the interface tracks the analytical solution only in an early
-transient, then the run disintegrates (spurious secondary interfaces,
-oscillatory temperature field) due to (1) a missing probe-based
-vaporisation-rate method and (2) periodic boundary conditions that are
-physically wrong for this problem.
+"""Regression test for the LEGACY 1-D Stefan scheme (superseded by src/stefan1d.py).
 
-Neither test below claims the benchmark is validated:
+`examples/stefan_1d.py` used to carry its own inline scheme (copied below, unchanged):
+nested central differences d/dx(alpha d/dx T) with alpha = alpha_v*phi, periodic
+np.roll operators with the wall pinned on node 0, a grid-point central-difference
+vaporisation gradient, source m_surf*phi(1-phi)/eps, T clamped to T_sat where phi<0.5.
+That scheme fails the benchmark: about 51% interface error at t = 120 s and 66% at
+t = 250 s with the current SimParams gamma default (0.1 m/s); 56% at t = 250 s with the
+pre-6c114f9 gamma (= eps), which is the historical figure quoted in earlier documentation.  The failure was diagnosed and fixed by replacing the scheme with the
+solver in src/stefan1d.py; see tests/test_stefan_1d.py for the verification of the new
+solver and the "Stefan problem" section of
+docs/Phase_Field_Boiling_Solver_Technical_Documentation.md for the diagnosis.
 
-- test_stefan_1d_benchmark_diverges_as_documented is a plain regression
-  check confirming the known failure is still present at roughly its
-  documented magnitude, so a silent change in this behaviour (in either
-  direction) would be caught.
-- test_stefan_1d_benchmark_would_be_validated_if_fixed is marked xfail
-  (strict) because it encodes the *target* behaviour the benchmark should
-  reach once fixed, not the current behaviour. strict=True turns an
-  accidental pass into a hard failure, forcing a human to consciously
-  remove the marker rather than letting an undocumented fix (or a silent
-  regression the other way) go unnoticed.
-
-The physics below mirrors examples/stefan_1d.py exactly (same equations,
-same parameters), reduced only in t_end (120 s of modelled physical time
-instead of 250 s) to keep the test suite fast; the technical
-documentation's own diagnostic table shows the failure is already
-unambiguous well before t = 120 s (30.7% error and multiple spurious
-interfaces by t = 100 s).
+This test is kept as evidence that the legacy formulation is still defective, so that
+the reasons for not using it stay checkable.  It is NOT a benchmark of the current
+solver, and it deliberately no longer contains an xfail "target" test: the target
+behaviour is now tested, against the analytic solution, in tests/test_stefan_1d.py.
 """
 import numpy as np
-import pytest
 from scipy.optimize import brentq
 from scipy.special import erf
 
@@ -97,33 +85,13 @@ def _run_stefan_1d(t_end):
     return delta_num, delta_ana
 
 
-def test_stefan_1d_benchmark_diverges_as_documented():
+def test_legacy_stefan_1d_scheme_still_fails_the_benchmark():
     delta_num, delta_ana = _run_stefan_1d(t_end=120.0)
     assert delta_num is not None
     rel_error = abs(delta_num - delta_ana) / delta_ana
 
-    # The technical documentation reports 30.7% error at t=100s, rising
-    # further by t=120-150s. A loose lower bound confirms the failure is
-    # still present at roughly the documented magnitude without pinning an
-    # exact figure, which would make this test brittle to unrelated
-    # numerical changes.
+    # Observed at t = 120 s: 51.5% (current default gamma = 0.1); 42% with gamma = 2e-3;
+    # ~31% at t = 100 s with gamma = eps (historical).  A loose
+    # lower bound confirms the legacy scheme is still defective without pinning an
+    # exact figure that would be brittle to unrelated changes.
     assert rel_error > 0.15
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Known open issue, not yet fixed: the 1-D Stefan benchmark requires "
-        "a probe-based vaporisation-rate method and non-periodic (wall/"
-        "outlet) boundary conditions, neither implemented yet. See "
-        "docs/Phase_Field_Boiling_Solver_Technical_Documentation.md, 'The "
-        "Stefan problem', for the full mechanism. This test encodes the "
-        "target behaviour once that work is done; it must stay marked "
-        "xfail until then. strict=True turns an accidental pass into a "
-        "hard failure so the marker cannot be silently forgotten."
-    ),
-)
-def test_stefan_1d_benchmark_would_be_validated_if_fixed():
-    delta_num, delta_ana = _run_stefan_1d(t_end=120.0)
-    rel_error = abs(delta_num - delta_ana) / delta_ana
-    assert rel_error < 0.05

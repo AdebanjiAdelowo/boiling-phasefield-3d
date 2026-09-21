@@ -28,6 +28,25 @@ def interface_position_1d(phi_1d, x):
     return x[i] + frac * (x[i + 1] - x[i])
 
 
+def count_interface_crossings_1d(phi_1d):
+    """Number of phi = 0.5 crossings in a 1-D array (1 for a clean single front).
+
+    Nodes are classified as phi >= 0.5 or not, so a node sitting exactly on 0.5
+    (where np.sign gives 0) is not counted as two crossings."""
+    above = np.asarray(phi_1d) >= 0.5
+    return int(np.sum(above[1:] != above[:-1]))
+
+
+def vapour_thickness_1d(phi_1d, dx):
+    """Mass-based front position: integral of phi over [0, L] by the trapezoid rule.
+
+    For a single front with vapour against the wall this equals the front position
+    to the accuracy of the profile's symmetry.  Unlike the phi = 0.5 crossing it
+    cannot lock onto a spurious secondary interface, so it is the more robust
+    measure when the field is not monotone."""
+    return dx * (np.sum(phi_1d) - 0.5 * (phi_1d[0] + phi_1d[-1]))
+
+
 def nusselt_number_2d(T, k, dT_ref, L, dy):
     """
     Wall Nusselt number from the bottom-wall temperature gradient.
