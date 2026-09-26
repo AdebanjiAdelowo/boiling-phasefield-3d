@@ -45,6 +45,33 @@ directly GPU-portable, which is the core motivation for choosing this method.
   at the interface. The library 2-D path (`run_2d`) is **not validated**; the 1-D
   Stefan problem uses the dedicated solver `src/stefan1d.py`, see below
 
+One explicit time step of the library solver (`run_2d` in `src/solver.py`; `run_3d` follows the same
+sequence in `prescribed` mode only). Dashed boxes mark the `heat_flux` pathway, which is not
+validated (see "Validation status"):
+
+```mermaid
+flowchart TD
+    S0["State at step n<br/>φ, u, T on a periodic Cartesian grid"]
+    M1["Vaporisation rate ṁ<br/>prescribed: mdot_volumetric (Eq. 2)"]
+    M2["Vaporisation rate ṁ<br/>heat_flux: mdot_from_heatflux_2d (Eq. 12)"]
+    AC["Conservative Allen-Cahn, explicit Euler<br/>φⁿ⁺¹ = φⁿ + Δt·RHS(φ, u, ṁ), clipped to [0, 1]"]
+    EN["Energy equation, explicit Euler (Eq. 9)<br/>latent-heat source, T = T_sat in the other phase"]
+    NS1["Momentum predictor for w = ρu (Eq. 16)<br/>advection, variable-μ viscous term, CSF surface tension"]
+    NS2["Constant-coefficient pressure Poisson (Eq. 18)<br/>∇²p = (∇·w* − ṁ(1 − ρ_v/ρ_l)) / Δt<br/>FFT with discrete-Laplacian eigenvalues"]
+    NS3["Projection (Eqs. 19-20)<br/>w = w* − Δt∇p,  u = w / ρ(φⁿ⁺¹)<br/>run_2d only: velocity limited to Lx/Δt"]
+    S1["State at step n + 1"]
+
+    S0 --> M1 --> AC
+    S0 -.-> M2 -.-> AC
+    AC -.heat_flux only.-> EN
+    AC --> NS1
+    EN -.-> NS1
+    NS1 --> NS2 --> NS3 --> S1
+
+    classDef unvalidated stroke-dasharray: 5 5
+    class M2,EN unvalidated
+```
+
 ---
 
 ## Project structure
@@ -128,6 +155,21 @@ is meant to reproduce), **failed/unresolved**.
 | 3-D heat-flux mode | 3-D | Not implemented (`run_3d` raises `NotImplementedError`) |
 
 This prototype is a development and verification environment, not a production solver.
+
+![2-D bubble growth: numerical and analytical radius against time, and the final phase field](bubble_2d_result.png)
+
+*2-D bubble growth at a prescribed vaporisation rate (`examples/bubble_2d.py`, $N=64$). The
+numerical radius starts above the analytical line because of the diffuse initial profile (+8.6 % at
+$t=0$) and grows slightly more slowly than $\dot m/\rho_v$ (fitted slope 4.5 % low), so the offset
+shrinks to +2.8 % at the final time. Values from the refinement table in the technical
+documentation.*
+
+![1-D Stefan problem: interface position, interface-position error over time, and final temperature and phase profiles](stefan_1d_result.png)
+
+*1-D Stefan problem with the dedicated solver `src/stefan1d.py` (`examples/stefan_1d.py`: 0.2 m
+domain, $N=200$, $\Delta x=1$ mm). The $\phi=0.5$ interface error at $t=250$ s is about 0.6%, matching
+the $\Delta x=1$ mm entry of the refinement sequence above. `--refine` runs $N=50$ to 400
+($\Delta x=4$ to 0.5 mm) on the same domain.*
 
 **Provenance of earlier Stefan numbers.** The 56 % (t = 250 s) quoted in earlier versions of this README, and in
 material derived from it, is the *historical, pre-γ-fix* result (commit c125ad6). The unmodified pre-correction
@@ -243,7 +285,15 @@ result = run_3d(p, phi0)
    default was tried and withdrawn because it is itself unvalidated; the proper fix (a run-time γ tied to the
    interface speed) belongs with the general heat-flux pathway. The dedicated solver does not use it.
 
-7. **First-order accuracy, matched densities.** The Stefan solver converges at first order in Δx
+7. **Stabilising safeguards in the library solver.** After each Allen-Cahn step `run_2d` and
+   `run_3d` clip φ to [0, 1], and `run_2d` rescales the whole velocity field whenever
+   max |u| exceeds `Lx / dt` (`src/solver.py`; the clamp is commented there as preventing
+   blow-up of the explicit scheme). Both are numerical safeguards of this implementation, and the
+   clip is not mass-conserving when it is active. The dedicated Stefan solver
+   reports its clipped mass separately (zero in every refinement run, see the technical
+   documentation).
+
+8. **First-order accuracy, matched densities.** The Stefan solver converges at first order in Δx
    (staircase saturation clamp, explicit Euler), and has only been run with ρᵥ = ρₗ.
 
 ---
