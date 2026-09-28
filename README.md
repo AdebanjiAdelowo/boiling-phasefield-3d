@@ -1,7 +1,7 @@
 # boiling-phasefield-3d
 
 Python prototype of a phase-field solver for boiling heat transfer, extending
-the validated 1D/2D method of **Roccon (2025)** toward full 3D DNS.
+the 1D/2D method of **Roccon (2025)** toward full 3D DNS.
 
 > Roccon A. (2025). *Boiling heat transfer by phase-field method.*
 > Acta Mechanica 236, 5623–5638. https://doi.org/10.1007/s00707-024-04122-7
@@ -42,12 +42,12 @@ directly GPU-portable, which is the core motivation for choosing this method.
 **Vaporisation rate:** computed in two ways (selectable via `SimParams.mode`):
 - `'prescribed'`: surface rate ṁ is given directly (bubble growth benchmark)
 - `'heat_flux'`: ṁ computed from Rankine-Hugoniot heat-flux balance (Eq. 12)
-  at the interface. The library 2-D path (`run_2d`) is **not validated**; the 1-D
+  at the interface. The library 2-D path (`run_2d`) is **not verified** against its analytical benchmark; the 1-D
   Stefan problem uses the dedicated solver `src/stefan1d.py`, see below
 
 One explicit time step of the library solver (`run_2d` in `src/solver.py`; `run_3d` follows the same
 sequence in `prescribed` mode only). Dashed boxes mark the `heat_flux` pathway, which is not
-validated (see "Validation status"):
+verified (see "Verification status"):
 
 ```mermaid
 flowchart TD
@@ -68,8 +68,8 @@ flowchart TD
     EN -.-> NS1
     NS1 --> NS2 --> NS3 --> S1
 
-    classDef unvalidated stroke-dasharray: 5 5
-    class M2,EN unvalidated
+    classDef unverified stroke-dasharray: 5 5
+    class M2,EN unverified
 ```
 
 ---
@@ -124,14 +124,14 @@ boiling-phasefield-3d/
 │
 ├── examples/
 │   ├── bubble_2d.py            2-D vapour bubble growth at constant
-│   │                           vaporisation rate. Validates R(t) = R₀ +
+│   │                           vaporisation rate. Checks R(t) = R₀ +
 │   │                           (ṁ/ρᵥ)t against the analytical solution.
 │   │                           Reproduces Roccon (2025) Section 3.4.
 │   │
 │   └── stefan_1d.py            1-D Stefan problem: superheated vapour drives
 │                               vaporisation, compared against δ(t) = 2ξ√(αᵥt).
 │                               Uses src/stefan1d.py; `--refine` runs the
-│                               convergence study (see "Validation status").
+│                               convergence study (see "Verification status").
 │
 ├── requirements.txt            Python dependencies
 └── README.md                   This file
@@ -139,18 +139,19 @@ boiling-phasefield-3d/
 
 ---
 
-## Validation status
+## Verification status
 
-Terms are used strictly: **implemented** (code exists), **verified** (a piece of the code is
-checked against an exact identity, manufactured solution or another implementation),
-**validated** (the coupled solver is compared with an analytic solution of the physical problem it
-is meant to reproduce), **failed/unresolved**.
+Terms are used strictly: **implemented** (code exists); **verified** (the code is checked against a
+mathematical reference: an exact identity, a manufactured solution, another implementation, or an
+analytical solution of the model problem, such as the bubble-growth and Stefan benchmarks, in which
+case the coupled solver is tested end to end); **validated** (the model is compared with physical or
+experimental data, which has not been done here); **failed/unresolved**.
 
 | Benchmark | Dimension | Status |
 |---|---|---|
 | Bubble growth at prescribed vaporisation rate | 2-D | Agrees with R(t) = R₀ + (ṁ/ρᵥ)t and the error **decreases systematically under grid refinement** (final-radius error 10.4, 2.8, 1.0 % at N = 32, 64, 128). The previously documented *second-order* rate is **not currently reproduced and is under re-evaluation**; no order is claimed (docs Section 11.1, "Re-evaluation"). The 2-D bubble path is unchanged by this work (bit-identical, protected by a golden-value test) |
 | Stefan problem, matched densities, one superheated phase (St = 0.2) | 1-D, **dedicated solver** `src/stefan1d.py` | The dedicated 1-D Stefan solver reproduces the analytical benchmark with first-order spatial convergence, reaching 0.079 % interface-position error at Δx = 0.125 mm and t = 250 s (1.14, 0.61, 0.32, 0.16, 0.08 % for Δx = 2 → 0.125 mm). Mass and energy budget diagnostics verified. The analytic reference was itself verified independently. Matched densities only |
-| **General multiphase heat-flux pathway** (`run_2d(mode='heat_flux')`, library `energy.py`) | 2-D | **Remains unvalidated / under validation.** `src/stefan1d.py` does not resolve its issues: an exploratory extruded-Stefan run through it still shows 5.7 % error at t = 28 s, 24 % at t = 40 s, and temperature undershoot to −0.97 K (two data points, short run) |
+| **General multiphase heat-flux pathway** (`run_2d(mode='heat_flux')`, library `energy.py`) | 2-D | **Not verified: does not yet reproduce the analytical Stefan benchmark.** `src/stefan1d.py` does not resolve its issues: an exploratory extruded-Stefan run through it still shows 5.7 % error at t = 28 s, 24 % at t = 40 s, and temperature undershoot to −0.97 K (two data points, short run) |
 | Spherical bubble, prescribed vaporisation rate | 3-D | **3-D solver verified, not physically validated.** Verified: Poisson manufactured-solution convergence, projection convergence, phase-mass identity, and 2-D/3-D extruded consistency along all three axes (which found and fixed missing 3-D variable-viscosity terms). A sphere-volume consistency check (≈ 0.1 %) is flat in N and is **not** a convergence result. No physical 3-D boiling benchmark has been run |
 | 3-D heat-flux mode | 3-D | Not implemented (`run_3d` raises `NotImplementedError`) |
 
@@ -253,7 +254,7 @@ result = run_3d(p, phi0)
    Euler. The bubble benchmark therefore uses σ = 0. An implicit surface tension
    treatment is needed to lift this restriction.
 
-2. **The general multiphase heat-flux pathway is unvalidated.**
+2. **The general multiphase heat-flux pathway is not verified.**
    The 1-D Stefan benchmark is reproduced only by the dedicated solver `src/stefan1d.py` (non-periodic
    wall/outlet, compact conservative energy stencil, probe vaporisation rate, |∇φ| mass source). None of
    these has been generalised to `run_2d` / `run_3d`, and the dedicated solver is not evidence that they work:
@@ -274,7 +275,7 @@ result = run_3d(p, phi0)
 5. **Python performance.**
    NumPy is sufficient for 2-D prototype runs (64×64 in seconds). A 3-D
    turbulent simulation at 512³ requires Fortran + GPU: this prototype is
-   a validation tool only, not a production solver.
+   a verification and development tool only, not a production solver.
 
 6. **Fixed since initial development.** The Allen-Cahn mobility (`gamma`) dimensional scaling
    and the `mdot_from_heatflux_2d` sign/factoring bug were fixed and re-verified against the
@@ -282,7 +283,7 @@ result = run_3d(p, phi0)
    (an implementation correction found by the extruded 2-D/3-D consistency test).
    **Identified, not changed:** in `heat_flux` mode the default `SimParams.gamma` inherits 0.1 m/s from
    `mdot_surf` (documented as used only in `prescribed` mode), ~300x the Stefan interface speed. A replacement
-   default was tried and withdrawn because it is itself unvalidated; the proper fix (a run-time γ tied to the
+   default was tried and withdrawn because it is itself unverified; the proper fix (a run-time γ tied to the
    interface speed) belongs with the general heat-flux pathway. The dedicated solver does not use it.
 
 7. **Stabilising safeguards in the library solver.** After each Allen-Cahn step `run_2d` and
@@ -319,7 +320,7 @@ Roccon's public repositories at [MultiphaseFlowLab](https://github.com/Multiphas
 
 Neither existing code includes boiling physics. The PhD project bridges this
 gap by adding the energy equation and vaporisation source term from Roccon
-(2025) into the FLOW36 framework. This Python prototype validates those
+(2025) into the FLOW36 framework. This Python prototype verifies those
 additions before the Fortran port.
 
 ---
